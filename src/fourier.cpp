@@ -113,9 +113,30 @@ void calcular_metricas_y_reportar(int n_arm) {
     fa.potencia_d = sqrtf(max(0.0f, potencia_d_cuadrado));
     fa.factor_potencia = (fa.potencia_s > 0.0f) ? fa.potencia_p / fa.potencia_s : 0.0f;
 
-    Serial.printf("DATA_METRICAS,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+    // ------------------------------------------------------------------
+    // THD (Hart, ec. 6.8):  THD = sqrt( sum_{n>=2} (an^2+bn^2)/2 ) / sqrt( (a1^2+b1^2)/2 )
+    // Es la relación entre el valor eficaz de los armónicos (n>=2) y el de la
+    // fundamental. El factor 1/2 (amplitud -> eficaz) aparece arriba y abajo y se
+    // cancela, por eso se trabaja directamente con las amplitudes.
+    // La continua (a0) NO entra: no es un armónico (con la def. de Hart).
+    // Se usan los mismos N armónicos (n_arm) que el resto de las métricas, así
+    // el THD "ve" lo mismo que el osciloscopio y la tabla de error de la app.
+    // La escala vmax se cancela en el cociente, por eso se usan an/bn normalizados.
+    // ------------------------------------------------------------------
+    float arm_v = 0.0f, arm_i = 0.0f;   // sum_{n>=2} (an^2 + bn^2)
+    for (int n = 2; n <= n_arm; n++) {
+        arm_v += fa.an[n] * fa.an[n] + fa.bn[n] * fa.bn[n];
+        arm_i += fa.an_i[n] * fa.an_i[n] + fa.bn_i[n] * fa.bn_i[n];
+    }
+    const float fund_v = fa.an[1] * fa.an[1] + fa.bn[1] * fa.bn[1];
+    const float fund_i = fa.an_i[1] * fa.an_i[1] + fa.bn_i[1] * fa.bn_i[1];
+    // Si la fundamental es ~0 el THD no está definido: se informa 0 (evita dividir por 0)
+    fa.thd_v = (fund_v > 1e-12f) ? 100.0f * sqrtf(arm_v / fund_v) : 0.0f;
+    fa.thd_i = (fund_i > 1e-12f) ? 100.0f * sqrtf(arm_i / fund_i) : 0.0f;
+
+    Serial.printf("DATA_METRICAS,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
                   n_arm, fa.v_max_calc, fa.v_min_calc, fa.v_avg_calc, fa.v_rms_calc,
                   fa.i_max_calc, fa.i_min_calc, fa.i_avg_calc, fa.i_rms_calc,
                   fa.potencia_s, fa.potencia_p, fa.potencia_q, fa.potencia_d,
-                  fa.factor_potencia);
+                  fa.factor_potencia, fa.thd_v, fa.thd_i);
 }

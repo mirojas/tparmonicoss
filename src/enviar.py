@@ -68,7 +68,7 @@ class OsciloscopioApp:
         self.metricas_teoricas = {p: 0.0 for p in (
             "Vmax", "Vmin", "Vavg", "Vrms",
             "Imax", "Imin", "Iavg", "Irms",
-            "S", "P", "Q", "D", "FP"
+            "S", "P", "Q", "D", "FP", "THDv", "THDi"
         )}
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -218,7 +218,7 @@ class OsciloscopioApp:
         parametros = [
             "Vmax", "Vmin", "Vavg", "Vrms",
             "Imax", "Imin", "Iavg", "Irms",
-            "S", "P", "Q", "D", "FP"
+            "S", "P", "Q", "D", "FP", "THDv", "THDi"
         ]
         for p in parametros:
             row = tk.Frame(tabla_card, bg=COLOR_PANEL)
@@ -406,6 +406,12 @@ class OsciloscopioApp:
         potencia_s = v_rms * i_rms
         potencia_p = sum(v * i for v, i in zip(self.v_orig, self.i_orig)) / PUNTOS
         potencia_q = 0.0
+        # THD (Hart ec. 6.8): sqrt(sum_{n>=2}(an^2+bn^2)) / sqrt(a1^2+b1^2). La relacion
+        # entre valores eficaces de armonico = relacion entre amplitudes (el 1/2 se cancela).
+        suma_v_arm = 0.0   # sum_{n>=2} (an^2+bn^2) de la tension
+        suma_i_arm = 0.0   # idem corriente
+        fund_v = 0.0       # a1^2+b1^2 tension
+        fund_i = 0.0       # a1^2+b1^2 corriente
         for n in range(1, min(N, PUNTOS // 2) + 1):
             angulos = [2.0 * math.pi * n * k / PUNTOS for k in range(PUNTOS)]
             coef_v_cos = (2.0 / PUNTOS) * sum(v * math.cos(angulo) for v, angulo in zip(self.v_orig, angulos))
@@ -413,16 +419,27 @@ class OsciloscopioApp:
             coef_i_cos = (2.0 / PUNTOS) * sum(i * math.cos(angulo) for i, angulo in zip(self.i_orig, angulos))
             coef_i_sin = (2.0 / PUNTOS) * sum(i * math.sin(angulo) for i, angulo in zip(self.i_orig, angulos))
             potencia_q += (coef_v_sin * coef_i_cos - coef_v_cos * coef_i_sin) / 2.0
+            if n == 1:
+                fund_v = coef_v_cos ** 2 + coef_v_sin ** 2
+                fund_i = coef_i_cos ** 2 + coef_i_sin ** 2
+            else:
+                suma_v_arm += coef_v_cos ** 2 + coef_v_sin ** 2
+                suma_i_arm += coef_i_cos ** 2 + coef_i_sin ** 2
+        # Si la fundamental es ~0 el THD no esta definido -> se informa 0
+        thd_v = 100.0 * math.sqrt(suma_v_arm / fund_v) if fund_v > 1e-12 else 0.0
+        thd_i = 100.0 * math.sqrt(suma_i_arm / fund_i) if fund_i > 1e-12 else 0.0
         potencia_d = math.sqrt(max(0.0, potencia_s ** 2 - potencia_p ** 2 - potencia_q ** 2))
         self.metricas_teoricas.update({
             "Imax": i_max, "Imin": i_min, "Iavg": i_avg, "Irms": i_rms,
             "S": potencia_s, "P": potencia_p, "Q": potencia_q, "D": potencia_d,
             "FP": potencia_p / potencia_s if potencia_s > 0.0 else 0.0,
+            "THDv": thd_v, "THDi": thd_i,
         })
         unidades = {
             "Vmax": "V", "Vmin": "V", "Vavg": "V", "Vrms": "V",
             "Imax": "A", "Imin": "A", "Iavg": "A", "Irms": "A",
-            "S": "VA", "P": "W", "Q": "var", "D": "VA", "FP": ""
+            "S": "VA", "P": "W", "Q": "var", "D": "VA", "FP": "",
+            "THDv": "%", "THDi": "%"
         }
         for p, vals in self.telemetry_rows.items():
             vals["teo"].config(text=f"{self.metricas_teoricas[p]:>7.2f} {unidades[p]}")
@@ -567,7 +584,7 @@ class OsciloscopioApp:
                     linea = self.serial_port.readline().decode('utf-8', errors='ignore').strip()
                     if linea.startswith("DATA_METRICAS"):
                         tokens = linea.split(",")
-                        if len(tokens) == 15:
+                        if len(tokens) == 17:  # DATA_METRICAS + N + 13 metricas + THDv + THDi
                             n_act = int(tokens[1])
                             metricas = [float(valor) for valor in tokens[2:]]
 
@@ -590,14 +607,15 @@ class OsciloscopioApp:
             nombres_metricas = [
                 "Vmax", "Vmin", "Vavg", "Vrms",
                 "Imax", "Imin", "Iavg", "Irms",
-                "S", "P", "Q", "D", "FP"
+                "S", "P", "Q", "D", "FP", "THDv", "THDi"
             ]
             esp_dict = dict(zip(nombres_metricas, metricas))
 
             unidades = {
                 "Vmax": "V", "Vmin": "V", "Vavg": "V", "Vrms": "V",
                 "Imax": "A", "Imin": "A", "Iavg": "A", "Irms": "A",
-                "S": "VA", "P": "W", "Q": "var", "D": "VA", "FP": ""
+                "S": "VA", "P": "W", "Q": "var", "D": "VA", "FP": "",
+            "THDv": "%", "THDi": "%"
             }
             for p in nombres_metricas:
                 teo_val = self.metricas_teoricas[p]
@@ -611,6 +629,8 @@ class OsciloscopioApp:
                     err_val = abs((esp_val - teo_val) / teo_val) * 100.0
                 elif p in ["FP"]:
                     err_val = abs(esp_val - teo_val) * 100.0
+                elif p in ["THDv", "THDi"]:
+                    err_val = abs(esp_val - teo_val)  # ya estan en %: error en puntos porcentuales
                 else:
                     err_val = (abs(esp_val - teo_val) / vp) * 100.0
 

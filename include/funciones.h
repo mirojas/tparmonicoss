@@ -40,6 +40,8 @@ struct FourierAnalyzer {
     float potencia_q;
     float potencia_d;
     float factor_potencia;
+    float thd_v;   // THD de tensión [%], armónicos 2..N respecto de la fundamental
+    float thd_i;   // THD de corriente [%]
 
     bool datos_listos;
 };
