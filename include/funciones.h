@@ -13,11 +13,11 @@ struct FourierAnalyzer {
     float vmax;
     int armonicos_sel;
     int armonicos_act;
-    
+
     // Muestras crudas de entrada (1 período)
     float vector_in[MAX_PUNTOS];
     float corriente_in[MAX_PUNTOS];
-    
+
     // Coeficientes de Fourier
     float a0;
     float an[MAX_ARMONICOS + 1];
@@ -25,7 +25,7 @@ struct FourierAnalyzer {
     float a0_i;
     float an_i[MAX_ARMONICOS + 1];
     float bn_i[MAX_ARMONICOS + 1];
-    
+
     // Métricas eléctricas calculadas
     float v_max_calc;
     float v_min_calc;
@@ -40,15 +40,39 @@ struct FourierAnalyzer {
     float potencia_q;
     float potencia_d;
     float factor_potencia;
-    
+
     bool datos_listos;
 };
 
+// ---------------------------------------------------------------------------
+// Estado compartido entre módulos (cada variable se DEFINE en un solo .cpp)
+// ---------------------------------------------------------------------------
+extern FourierAnalyzer fa;                    // definido en fourier.cpp
+extern volatile bool actualizar_pantalla;     // definido en display.cpp
+extern volatile bool cambio_pendiente;        // definido en display.cpp
+
+// ---------------------------------------------------------------------------
+// fourier.cpp: análisis de Fourier y métricas
+// ---------------------------------------------------------------------------
+void analizar_fourier();
+void calcular_metricas_y_reportar(int n_arm);
+
+// ---------------------------------------------------------------------------
+// display.cpp: OLED + encoder
+// ---------------------------------------------------------------------------
 void init_hardware();
-void init_wifi_ota();
-void atender_wifi_ota();
-void recibir_datos_serial();
 void verificar_auto_reconstruccion();
 void render_pantalla();
+
+// ---------------------------------------------------------------------------
+// comms.cpp: protocolo serie con la app Python
+// ---------------------------------------------------------------------------
+void recibir_datos_serial();
+
+// ---------------------------------------------------------------------------
+// ota.cpp: WiFi + OTA
+// ---------------------------------------------------------------------------
+void init_wifi_ota();
+void atender_wifi_ota();
 
 #endif
