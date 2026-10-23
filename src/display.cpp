@@ -147,6 +147,15 @@ void init_hardware() {
     attachInterrupt(digitalPinToInterrupt(PIN_CLK), isr_encoder, FALLING);
 }
 
+// Durante un OTA se escribe la flash: no queremos interrupciones del encoder.
+void display_suspender_encoder() {
+    detachInterrupt(digitalPinToInterrupt(PIN_CLK));
+}
+
+void display_reanudar_encoder() {
+    attachInterrupt(digitalPinToInterrupt(PIN_CLK), isr_encoder, FALLING);
+}
+
 void render_pantalla() {
     if (!actualizar_pantalla || !oled_ok) return;
     actualizar_pantalla = false;

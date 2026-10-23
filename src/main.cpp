@@ -10,7 +10,11 @@ void setup() {
 }
 
 void loop() {
-    atender_wifi_ota();
+    // Durante un OTA, loop() se frena: la tarea del core 0 es la que trabaja.
+    if (ota_en_curso()) {
+        delay(10);
+        return;
+    }
     recibir_datos_serial();
     verificar_auto_reconstruccion();
     render_pantalla();

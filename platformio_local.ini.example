@@ -1,0 +1,5 @@
+; Copiá como platformio_local.ini (NO se sube a git) y completá tus valores.
+; Se carga solo, vía extra_configs en platformio.ini.
+[env:esp32dev_ota]
+upload_port = 192.168.X.X          ; IP que imprime el ESP32: WIFI_READY,<IP>
+upload_flags = --auth=clave-ota    ; misma OTA_PASSWORD de secrets.h

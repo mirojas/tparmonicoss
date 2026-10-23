@@ -5,3 +5,6 @@
 .vscode/ipch
 __pycache__/
 *.pyc
+
+include/secrets.h
+platformio_local*.ini

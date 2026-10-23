@@ -70,6 +70,8 @@ void calcular_metricas_y_reportar(int n_arm);
 // display.cpp: OLED + encoder
 // ---------------------------------------------------------------------------
 void init_hardware();
+void display_suspender_encoder();   // detach de la ISR (durante OTA)
+void display_reanudar_encoder();    // vuelve a conectar la ISR
 void verificar_auto_reconstruccion();
 void render_pantalla();
 
@@ -81,7 +83,12 @@ void recibir_datos_serial();
 // ---------------------------------------------------------------------------
 // ota.cpp: WiFi + OTA
 // ---------------------------------------------------------------------------
-void init_wifi_ota();
-void atender_wifi_ota();
+void init_wifi_ota();   // inicia WiFi y la tarea de OTA (core 0), no bloquea
+bool ota_en_curso();    // true mientras se está actualizando el firmware
+
+// ---------------------------------------------------------------------------
+// control.cpp: salidas de potencia (gate de SCR, etc.)
+// ---------------------------------------------------------------------------
+void control_modo_seguro();   // apaga todas las salidas de potencia
 
 #endif
