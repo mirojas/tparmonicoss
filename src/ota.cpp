@@ -86,6 +86,16 @@ static void tarea_ota(void*) {
         } else {
             // Sin conexión: la reconexión la hace el stack WiFi (setAutoReconnect).
             g_wifi_avisado = false;
+
+            // Diagnóstico: cada 5 s informa en qué estado está la conexión.
+            //   1 = no encuentra la red (nombre mal escrito o red de 5 GHz)
+            //   4 = falló la conexión (clave incorrecta)
+            //   6 = desconectado   0 = en espera   5 = se perdió la conexión
+            static unsigned long t_aviso = 0;
+            if (millis() - t_aviso > 5000UL) {
+                t_aviso = millis();
+                Serial.printf("WIFI_CONECTANDO,red=%s,estado=%d\n", WIFI_SSID, (int)WiFi.status());
+            }
         }
         // Cede tiempo al sistema: sin esto el watchdog reinicia el ESP32.
         vTaskDelay(20 / portTICK_PERIOD_MS);
