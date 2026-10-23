@@ -108,6 +108,7 @@ class OsciloscopioApp:
         self.running_thread = True
         self.serial_port = None
         self._lectura_id = 0            # identifica al hilo de lectura vigente
+        self.disparo_armado = False     # True mientras el ESP32 está disparando
         self.bloqueo_tx_echo = False
 
         # Catálogo de señales
@@ -255,6 +256,40 @@ class OsciloscopioApp:
         self.entry_ip.bind("<Return>", lambda e: self.conectar_wifi())
         tk.Label(header, text="ESP32 IP ▶", font=(FONT_MONO, 9, "bold"),
                  fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.RIGHT, padx=(0, 4))
+
+        # 1b. BARRA DE DISPARO (cruce por cero + rectificadores controlados)
+        # El ángulo alfa es el mismo de la barra de arriba (solo RMMOC y RMOCC).
+        barra_disp = tk.Frame(self.root, bg=COLOR_PANEL, highlightthickness=1,
+                              highlightbackground=COLOR_BORDER)
+        barra_disp.pack(side=tk.TOP, fill=tk.X, padx=15, pady=(0, 6))
+
+        tk.Label(barra_disp, text="DISPARO ▶", font=(FONT_MONO, 9, "bold"),
+                 fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.LEFT, padx=(10, 4), pady=6)
+        self.btn_disparo = tk.Button(barra_disp, text="[ ARMAR ]", font=(FONT_MONO, 8, "bold"),
+                                     bg="#0E223D", fg=COLOR_AMBER, activebackground="#163866",
+                                     activeforeground="#FFFFFF", bd=0, padx=10, pady=2,
+                                     command=self.alternar_disparo)
+        self.btn_disparo.pack(side=tk.LEFT, padx=(0, 12))
+
+        tk.Label(barra_disp, text="ANCHO [µs] ▶", font=(FONT_MONO, 9, "bold"),
+                 fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.LEFT, padx=(0, 4))
+        self.ancho_var = tk.StringVar(value="50")
+        tk.Entry(barra_disp, textvariable=self.ancho_var, width=6, font=(FONT_MONO, 9),
+                 bg="#08101E", fg=COLOR_TEXT_WHITE, insertbackground=COLOR_CYAN,
+                 highlightthickness=1, highlightbackground=COLOR_BORDER,
+                 justify="center").pack(side=tk.LEFT, padx=(0, 12))
+
+        tk.Label(barra_disp, text="COMP [µs] ▶", font=(FONT_MONO, 9, "bold"),
+                 fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.LEFT, padx=(0, 4))
+        self.comp_var = tk.StringVar(value="100")
+        tk.Entry(barra_disp, textvariable=self.comp_var, width=6, font=(FONT_MONO, 9),
+                 bg="#08101E", fg=COLOR_TEXT_WHITE, insertbackground=COLOR_CYAN,
+                 highlightthickness=1, highlightbackground=COLOR_BORDER,
+                 justify="center").pack(side=tk.LEFT, padx=(0, 12))
+
+        self.lbl_zcd = tk.Label(barra_disp, text="ZCD: -- (sin datos)", font=(FONT_MONO, 9, "bold"),
+                                fg=COLOR_TEXT_DIM, bg=COLOR_PANEL)
+        self.lbl_zcd.pack(side=tk.RIGHT, padx=12)
 
         # 2. CONTENEDOR PRINCIPAL
         main_frame = tk.Frame(self.root, bg=COLOR_BG)
@@ -624,7 +659,8 @@ class OsciloscopioApp:
         self.actualizar_estado_widgets()
         self.generar_vectores_locales()
         self.actualizar_graficos()
-        self.transmitir_al_esp32()   
+        self.transmitir_al_esp32()
+        self.revisar_disparo_tras_cambio()
 
     def auto_conectar_serial(self):
         puertos = [p.device for p in serial.tools.list_ports.comports()]
@@ -690,6 +726,80 @@ class OsciloscopioApp:
         self.transmitir_al_esp32()
         return True
 
+    # ----------------------------------------------------------------------
+    # DISPARO (comandos CTRL al ESP32)
+    # ----------------------------------------------------------------------
+    def enviar_texto(self, texto):
+        """Manda una línea de texto al ESP32 (USB o WiFi). Devuelve True si se envió."""
+        if self.serial_port and self.serial_port.is_open:
+            try:
+                self.serial_port.write(texto.encode('utf-8'))
+                self.serial_port.flush()
+                return True
+            except Exception as e:
+                print(f"[TX ERR] {e}")
+        return False
+
+    def modo_disparo_actual(self):
+        """RMMOC / RMOCC según la señal elegida, o None si no es un rectificador controlado."""
+        tipo = self.tipo_var.get()
+        if "RMMOC" in tipo:
+            return "RMMOC"
+        if "RMOCC" in tipo:
+            return "RMOCC"
+        return None
+
+    def enviar_comando_disparo(self):
+        modo = self.modo_disparo_actual()
+        try:
+            alfa = float(self.alfa_var.get())
+            ancho = int(float(self.ancho_var.get()))
+            comp = int(float(self.comp_var.get()))
+        except ValueError:
+            self.lbl_zcd.config(text="DISPARO: VALORES INVÁLIDOS", fg="#E76F51")
+            return False
+        return self.enviar_texto(f"CTRL,{modo},{alfa:.2f},{ancho},{comp}\n")
+
+    def alternar_disparo(self):
+        if self.disparo_armado:
+            self.enviar_texto("CTRL,OFF\n")
+            self.disparo_armado = False
+            self.btn_disparo.config(text="[ ARMAR ]", fg=COLOR_AMBER)
+            return
+        if self.modo_disparo_actual() is None:
+            self.lbl_zcd.config(text="ELEGÍ RMMOC O RMOCC PARA DISPARAR", fg="#E76F51")
+            return
+        if not (self.serial_port and self.serial_port.is_open):
+            self.lbl_zcd.config(text="SIN ENLACE CON EL ESP32", fg="#E76F51")
+            return
+        if self.enviar_comando_disparo():
+            self.disparo_armado = True
+            self.btn_disparo.config(text="[ APAGAR ]", fg=COLOR_MAGENTA)
+
+    def revisar_disparo_tras_cambio(self):
+        """Si el disparo está armado y cambió la señal o alfa: reenvía o apaga."""
+        if not self.disparo_armado:
+            return
+        if self.modo_disparo_actual() is None:
+            self.enviar_texto("CTRL,OFF\n")
+            self.disparo_armado = False
+            self.btn_disparo.config(text="[ ARMAR ]", fg=COLOR_AMBER)
+        else:
+            self.enviar_comando_disparo()
+
+    def actualizar_zcd_ui(self, partes):
+        # ZCD_ESTADO,presente,periodo_us,frec_hz,modo,alfa,ancho,comp
+        try:
+            presente = partes[1] == "1"
+            periodo = int(partes[2])
+            frec = float(partes[3])
+        except (IndexError, ValueError):
+            return
+        if presente:
+            self.lbl_zcd.config(text=f"ZCD: OK  {frec:.2f} Hz  (T = {periodo} µs)", fg=COLOR_GREEN)
+        else:
+            self.lbl_zcd.config(text="ZCD: SIN CRUCE POR CERO", fg="#E76F51")
+
     def transmitir_al_esp32(self):
         if self.serial_port and self.serial_port.is_open:
             try:
@@ -725,6 +835,9 @@ class OsciloscopioApp:
 
                             if self.running_thread and self.root.winfo_exists():
                                 self.root.after(0, self.actualizar_telemetria_ui, n_act, metricas)
+                    elif linea.startswith("ZCD_ESTADO"):
+                        if self.running_thread and self.root.winfo_exists():
+                            self.root.after(0, self.actualizar_zcd_ui, linea.split(","))
                 time.sleep(0.02)
             except Exception:
                 break
@@ -785,6 +898,8 @@ class OsciloscopioApp:
             pass
 
     def on_closing(self):
+        if self.disparo_armado:
+            self.enviar_texto("CTRL,OFF\n")   # nunca dejar el disparo activo al salir
         self.running_thread = False
         if self.serial_port and self.serial_port.is_open:
             try:

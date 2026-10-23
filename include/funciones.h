@@ -90,8 +90,22 @@ void init_wifi_ota();   // inicia WiFi y la tarea de OTA (core 0), no bloquea
 bool ota_en_curso();    // true mientras se está actualizando el firmware
 
 // ---------------------------------------------------------------------------
-// control.cpp: salidas de potencia (gate de SCR, etc.)
+// zcd.cpp: detector de cruce por cero
 // ---------------------------------------------------------------------------
-void control_modo_seguro();   // apaga todas las salidas de potencia
+void init_zcd();
+void zcd_suspender();            // detach de la ISR (durante OTA)
+void zcd_reanudar();
+bool zcd_presente();             // hay red/señal con período válido y reciente
+uint32_t zcd_periodo_us();       // último período medido [us]
+float zcd_frecuencia_hz();
+
+// ---------------------------------------------------------------------------
+// control.cpp: disparo de rectificadores (gates de SCR) sincronizado con el ZCD
+// ---------------------------------------------------------------------------
+void init_control();
+void control_modo_seguro();               // apaga todas las salidas de potencia
+void control_on_cruce();                  // la llama la ISR del ZCD en cada cruce positivo
+void control_actualizar();                // desde loop(): avisos y ZCD_ESTADO cada 1 s
+void control_procesar_comando(char* linea);   // "CTRL,..." (desde comms.cpp)
 
 #endif

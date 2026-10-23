@@ -45,6 +45,7 @@ static void iniciar_ota() {
         // 2. Modo seguro: salidas de potencia apagadas y encoder sin interrupciones.
         //    Mientras se escribe la flash no queremos ISR ni disparos de gate.
         control_modo_seguro();
+        zcd_suspender();
         display_suspender_encoder();
         Serial.println("OTA_START");
     });
@@ -64,6 +65,7 @@ static void iniciar_ota() {
         Serial.printf("OTA_ERROR,%u\n", static_cast<unsigned>(error));
         // Si falló, el equipo sigue funcionando: se reactiva todo.
         display_reanudar_encoder();
+        zcd_reanudar();
         g_ota_en_curso = false;
     });
     ArduinoOTA.begin();   // también publica el nombre por mDNS

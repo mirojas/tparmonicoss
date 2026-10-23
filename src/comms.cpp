@@ -19,6 +19,7 @@ static char rx_buffer[24000];
 static WiFiServer servidor(TCP_PUERTO);
 static WiFiClient cliente;
 static bool servidor_iniciado = false;
+static bool cliente_activo = false;   // había una app conectada en la última pasada
 
 // Escribe una línea de respuesta por todos los canales activos.
 void enviar_linea(const char* linea) {
@@ -31,6 +32,14 @@ void enviar_linea(const char* linea) {
 // Procesa una trama ya leída en rx_buffer (bytes_leidos caracteres, sin el '\n').
 static void procesar_trama(size_t bytes_leidos) {
     rx_buffer[bytes_leidos] = '\0';
+
+    // Comandos de control de disparo ("CTRL,..."): son cortos, por eso se
+    // reconocen ANTES del filtro de longitud de las tramas de vectores.
+    if (strncmp(rx_buffer, "CTRL,", 5) == 0) {
+        control_procesar_comando(rx_buffer);
+        return;
+    }
+
     if (bytes_leidos > 10) {
 
         char* token = strtok(rx_buffer, ",");
@@ -95,7 +104,15 @@ void recibir_datos_serial() {
 // Recepción por WiFi (TCP). Se llama desde loop(), en el mismo núcleo que el resto
 // del procesamiento, así no hay dos hilos tocando el socket ni la estructura fa.
 void atender_tcp() {
-    if (WiFi.status() != WL_CONNECTED) return;
+    if (WiFi.status() != WL_CONNECTED) {
+        // Sin WiFi la app tampoco puede estar conectada: si había disparo armado, se apaga.
+        if (cliente_activo) {
+            control_modo_seguro();
+            cliente_activo = false;
+            Serial.println("TCP_CLIENTE_DESCONECTADO");
+        }
+        return;
+    }
 
     // El servidor se abre una sola vez, cuando ya hay WiFi (necesita tener IP).
     if (!servidor_iniciado) {
@@ -113,9 +130,18 @@ void atender_tcp() {
             cliente = nuevo;
             cliente.setNoDelay(true);
             cliente.setTimeout(500);   // ms que espera readBytesUntil si la línea llega partida
+            control_modo_seguro();     // app nueva: se arranca con el disparo apagado
             Serial.println("TCP_CLIENTE_CONECTADO");
         }
     }
+
+    // Fail-safe: si la app por WiFi se cae mientras había disparo armado, se apaga todo.
+    const bool ahora = cliente && cliente.connected();
+    if (cliente_activo && !ahora) {
+        control_modo_seguro();
+        Serial.println("TCP_CLIENTE_DESCONECTADO");
+    }
+    cliente_activo = ahora;
 
     if (cliente && cliente.connected() && cliente.available() > 0) {
         size_t bytes_leidos = cliente.readBytesUntil('\n', rx_buffer, sizeof(rx_buffer) - 1);

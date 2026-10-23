@@ -6,6 +6,8 @@ void setup() {
     Serial.begin(115200);
     init_tablas_trig();   // antes de cualquier cálculo de Fourier o dibujo
     init_hardware();
+    init_control();       // timer y gates (en bajo) ANTES de habilitar la interrupción del ZCD
+    init_zcd();
     init_wifi_ota();
 }
 
@@ -17,6 +19,7 @@ void loop() {
     }
     recibir_datos_serial();
     atender_tcp();
+    control_actualizar();
     verificar_auto_reconstruccion();
     render_pantalla();
 }
