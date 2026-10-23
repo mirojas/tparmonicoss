@@ -41,6 +41,7 @@
 
 static volatile bool pedido = false;    // hay una captura pendiente
 static float r_carga = 100.0f;          // [ohm], viene en el pedido
+static bool modo_libre = false;         // true = captura sin ZCD (prueba de cableado)
 
 // Buffer de salida de la línea ADC_DATA: hasta 2*720 valores de 8 caracteres + cabecera.
 static char buf_salida[2 * MAX_PUNTOS * 9 + 48];
@@ -53,12 +54,11 @@ void init_adc() {
 
 // La llama comms.cpp al recibir "ADC,...": fa.vmax, n y armónicos ya están cargados.
 void adc_pedir(float r_ohm) {
-    if (!zcd_presente()) {
-        // Sin cruce por cero no hay referencia de tiempo para sincronizar la captura.
-        enviar_linea("ADC_SIN_ZCD\n");
-        return;
-    }
     r_carga = (r_ohm > 0.0f) ? r_ohm : 100.0f;
+    // Sin cruce por cero no hay referencia de tiempo: se captura igual, pero "libre" (un período
+    // nominal de 20 ms desde ahora, NO sincronizada) y se avisa. Sirve para probar el cableado:
+    // una entrada al aire o tocada con el dedo capta ruido y zumbido de 50 Hz y se ve en la app.
+    modo_libre = !zcd_presente();
     pedido = true;
 }
 
@@ -68,22 +68,25 @@ void adc_actualizar() {
     pedido = false;
 
     const int n = fa.n_muestras;
-    const uint32_t T = zcd_periodo_us();
-    if (T == 0) {
-        enviar_linea("ADC_SIN_ZCD\n");
-        return;
-    }
-
-    // 1) Esperar el PRÓXIMO cruce (se compara el instante del último cruce contra el actual).
-    const uint32_t cruce_previo = zcd_ultimo_cruce_us();
-    const uint32_t t_inicio = micros();
-    while (zcd_ultimo_cruce_us() == cruce_previo) {
-        if ((uint32_t)(micros() - t_inicio) > 60000UL) {   // más de 60 ms sin cruce
-            enviar_linea("ADC_SIN_ZCD\n");
-            return;
+    uint32_t T = zcd_periodo_us();
+    uint32_t t0;
+    if (modo_libre || T == 0) {
+        // Captura libre: período nominal de 50 Hz, arranca ya.
+        T = 20000;
+        t0 = micros();
+        enviar_linea("ADC_LIBRE\n");
+    } else {
+        // 1) Esperar el PRÓXIMO cruce (se compara el instante del último cruce contra el actual).
+        const uint32_t cruce_previo = zcd_ultimo_cruce_us();
+        const uint32_t t_inicio = micros();
+        while (zcd_ultimo_cruce_us() == cruce_previo) {
+            if ((uint32_t)(micros() - t_inicio) > 60000UL) {   // más de 60 ms sin cruce
+                enviar_linea("ADC_SIN_ZCD\n");
+                return;
+            }
         }
+        t0 = zcd_ultimo_cruce_us();
     }
-    const uint32_t t0 = zcd_ultimo_cruce_us();
 
     // 2) n muestras repartidas en un período, a partir del cruce.
     const uint32_t paso_us = T / (uint32_t)n;   // tiempo disponible por muestra

@@ -952,6 +952,10 @@ class OsciloscopioApp:
                         if self.running_thread and self.root.winfo_exists():
                             self.root.after(0, lambda: self.lbl_zcd.config(
                                 text="ADC: SIN ZCD (conectá el generador a GPIO4)", fg="#E76F51"))
+                    elif linea.startswith("ADC_LIBRE"):
+                        if self.running_thread and self.root.winfo_exists():
+                            self.root.after(0, lambda: self.lbl_zcd.config(
+                                text="ADC: CAPTURA LIBRE (sin ZCD, no sincronizada)", fg=COLOR_AMBER))
                     elif linea.startswith("ADC_INFO"):
                         print(linea)   # n, período y cuántas muestras llegaron tarde
                     elif linea.startswith("ZCD_ESTADO"):
