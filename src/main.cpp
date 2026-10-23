@@ -4,6 +4,7 @@
 void setup() {
     Serial.setRxBufferSize(24000);
     Serial.begin(115200);
+    init_tablas_trig();   // antes de cualquier cálculo de Fourier o dibujo
     init_hardware();
     init_wifi_ota();
 }

@@ -93,11 +93,16 @@ static void dibujar_osciloscopio() {
     int y_ant = y_cero;
 
     for (int x = x_inicio; x <= x_fin; x++) {
-        float theta = (2.0f * PI * (float)(x - x_inicio)) / (float)(x_fin - x_inicio);
+        // Posición del pixel en la tabla: k = (x - x_inicio) * M / (x_fin - x_inicio).
+        // Con M = 1000 y 125 tramos da k = 8*(x - x_inicio): entero exacto, sin interpolar.
+        const int k = ((x - x_inicio) * MAX_PUNTOS) / (x_fin - x_inicio);
         float valor = fa.a0;
 
+        int idx = 0;   // (n*k) mod M, incremental (ver fourier.cpp)
         for (int n = 1; n <= fa.armonicos_act; n++) {
-            valor += (fa.an[n] * cosf((float)n * theta)) + (fa.bn[n] * sinf((float)n * theta));
+            idx += k;
+            if (idx >= MAX_PUNTOS) idx -= MAX_PUNTOS;
+            valor += (fa.an[n] * tabla_cos[idx]) + (fa.bn[n] * tabla_sin[idx]);
         }
 
         int y_act;

@@ -21,11 +21,23 @@ RMOCC (Onda Completa Controlado) | (Vp / pi) * (1 + cos(alpha)) | (Vp / sqrt(2))
 
 FourierAnalyzer fa = {};
 
+float tabla_cos[MAX_PUNTOS];
+float tabla_sin[MAX_PUNTOS];
+
+// Llena las tablas. Se calcula en double para que cada entrada quede redondeada
+// correctamente a float (más preciso que acumular ángulos en float como antes).
+void init_tablas_trig() {
+    for (int j = 0; j < MAX_PUNTOS; j++) {
+        const double ang = 2.0 * M_PI * (double)j / (double)MAX_PUNTOS;
+        tabla_cos[j] = (float)cos(ang);
+        tabla_sin[j] = (float)sin(ang);
+    }
+}
+
 // 1. Correlación Ortogonal de Fourier Discreta
 static void calcular_coeficientes(const float* vector, float& a0, float* an, float* bn) {
     const int M = MAX_PUNTOS;
     const float factor_dos_m = 2.0f / (float)M;
-    const float paso_rad = (2.0f * PI) / (float)M;
 
     float suma_dc = 0.0f;
     for (int k = 0; k < M; k++) {
@@ -36,12 +48,14 @@ static void calcular_coeficientes(const float* vector, float& a0, float* an, flo
     for (int n = 1; n <= MAX_ARMONICOS; n++) {
         float suma_cos = 0.0f;
         float suma_sin = 0.0f;
-        float factor_n = (float)n * paso_rad;
-
+        // idx = (n*k) mod M, calculado de forma incremental: en cada paso se suma n
+        // y, si se pasó de M, se resta M (vale porque n <= MAX_ARMONICOS < M). Evita la división.
+        int idx = 0;
         for (int k = 0; k < M; k++) {
-            float angulo = factor_n * (float)k;
-            suma_cos += vector[k] * cosf(angulo);
-            suma_sin += vector[k] * sinf(angulo);
+            suma_cos += vector[k] * tabla_cos[idx];
+            suma_sin += vector[k] * tabla_sin[idx];
+            idx += n;
+            if (idx >= M) idx -= M;
         }
 
         an[n] = factor_dos_m * suma_cos;
@@ -65,13 +79,19 @@ void calcular_metricas_y_reportar(int n_arm) {
     float suma_potencia_reactiva = 0.0f;
 
     for (int k = 0; k < M; k++) {
-        float theta = (2.0f * PI * (float)k) / (float)M;
         float val_norm = fa.a0;
         float val_corriente = fa.a0_i;
 
+        // Mismo truco que en calcular_coeficientes: idx = (n*k) mod M, incremental.
+        // El coseno y el seno se leen UNA vez y se usan para tensión y corriente.
+        int idx = 0;
         for (int n = 1; n <= n_arm; n++) {
-            val_norm += (fa.an[n] * cosf((float)n * theta)) + (fa.bn[n] * sinf((float)n * theta));
-            val_corriente += (fa.an_i[n] * cosf((float)n * theta)) + (fa.bn_i[n] * sinf((float)n * theta));
+            idx += k;
+            if (idx >= M) idx -= M;      // k < M, así que una resta alcanza
+            const float c = tabla_cos[idx];
+            const float sn = tabla_sin[idx];
+            val_norm += (fa.an[n] * c) + (fa.bn[n] * sn);
+            val_corriente += (fa.an_i[n] * c) + (fa.bn_i[n] * sn);
         }
 
         float v_inst = val_norm * fa.vmax;

@@ -47,8 +47,15 @@ void recibir_datos_serial() {
                 fa.armonicos_sel = n_mantener;
                 fa.armonicos_act = n_mantener;
                 
+                // Medición de tiempos para ver cuánto tarda cada etapa (ms).
+                // La app Python ignora esta línea (solo procesa DATA_METRICAS).
+                const unsigned long t0 = millis();
                 analizar_fourier();
+                const unsigned long t1 = millis();
                 calcular_metricas_y_reportar(n_mantener);
+                const unsigned long t2 = millis();
+                Serial.printf("INFO_TIEMPO_MS,N=%d,fourier=%lu,metricas=%lu\n",
+                              n_mantener, t1 - t0, t2 - t1);
                 
                 cambio_pendiente = false;
                 actualizar_pantalla = true;

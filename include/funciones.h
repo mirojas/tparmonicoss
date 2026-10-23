@@ -56,6 +56,13 @@ extern volatile bool cambio_pendiente;        // definido en display.cpp
 // ---------------------------------------------------------------------------
 // fourier.cpp: análisis de Fourier y métricas
 // ---------------------------------------------------------------------------
+// Tablas de cos y sin de 2*pi*j/MAX_PUNTOS, j = 0..MAX_PUNTOS-1 (llenar UNA vez con init_tablas_trig()).
+// Como los ángulos del análisis son siempre 2*pi*n*k/MAX_PUNTOS, cos(n*theta_k) = tabla_cos[(n*k) % MAX_PUNTOS]:
+// se evita llamar millones de veces a cosf/sinf (por software en el ESP32, no tiene FPU trigonométrica).
+extern float tabla_cos[MAX_PUNTOS];
+extern float tabla_sin[MAX_PUNTOS];
+void init_tablas_trig();
+
 void analizar_fourier();
 void calcular_metricas_y_reportar(int n_arm);
 
