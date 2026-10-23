@@ -30,7 +30,7 @@ IRAM_ATTR static void isr_encoder() {
         int delta = (dt < 40) ? 5 : 1;
 
         if (digitalRead(PIN_DT) == HIGH) {
-            fa.armonicos_sel = min(MAX_ARMONICOS, fa.armonicos_sel + delta);
+            fa.armonicos_sel = min(fa.n_arm_max, fa.armonicos_sel + delta);
         } else {
             fa.armonicos_sel = max(1, fa.armonicos_sel - delta);
         }
@@ -94,14 +94,15 @@ static void dibujar_osciloscopio() {
 
     for (int x = x_inicio; x <= x_fin; x++) {
         // Posición del pixel en la tabla: k = (x - x_inicio) * M / (x_fin - x_inicio).
-        // Con M = 1000 y 125 tramos da k = 8*(x - x_inicio): entero exacto, sin interpolar.
-        const int k = ((x - x_inicio) * MAX_PUNTOS) / (x_fin - x_inicio);
+        // M = fa.n_muestras: k es el índice de muestra que cae en ese pixel (división entera).
+        const int M = fa.n_muestras;
+        const int k = ((x - x_inicio) * M) / (x_fin - x_inicio);
         float valor = fa.a0;
 
         int idx = 0;   // (n*k) mod M, incremental (ver fourier.cpp)
         for (int n = 1; n <= fa.armonicos_act; n++) {
             idx += k;
-            if (idx >= MAX_PUNTOS) idx -= MAX_PUNTOS;
+            if (idx >= M) idx -= M;
             valor += (fa.an[n] * tabla_cos[idx]) + (fa.bn[n] * tabla_sin[idx]);
         }
 

@@ -30,7 +30,12 @@ COLOR_TEXT_WHITE = "#E6F0FA"
 COLOR_GRID = "#0E1C30"
 FONT_MONO = "Consolas"
 
-PUNTOS = 1000
+# n = muestras por vector. La consigna pide n entre 120 y 720, con 360 inicial.
+# Es una variable GLOBAL que se actualiza con el control "n" (ver cambiar_n): todo el
+# código que genera y analiza vectores la lee en el momento de usarla.
+N_MIN, N_MAX, N_INICIAL = 120, 720, 360
+PUNTOS = N_INICIAL
+R_CARGA_INICIAL = 100.0   # ohm (consigna: carga resistiva de 100 ohm)
 
 TCP_PUERTO = 5000                       # debe coincidir con TCP_PUERTO del firmware
 ARCHIVO_IP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "esp32_ip.txt")
@@ -271,7 +276,7 @@ class OsciloscopioApp:
                                      command=self.alternar_disparo)
         self.btn_disparo.pack(side=tk.LEFT, padx=(0, 12))
 
-        tk.Label(barra_disp, text="ANCHO [µs] ▶", font=(FONT_MONO, 9, "bold"),
+        tk.Label(barra_disp, text="ANCHO / T.MUERTO [µs] ▶", font=(FONT_MONO, 9, "bold"),
                  fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.LEFT, padx=(0, 4))
         self.ancho_var = tk.StringVar(value="50")
         tk.Entry(barra_disp, textvariable=self.ancho_var, width=6, font=(FONT_MONO, 9),
@@ -286,6 +291,29 @@ class OsciloscopioApp:
                  bg="#08101E", fg=COLOR_TEXT_WHITE, insertbackground=COLOR_CYAN,
                  highlightthickness=1, highlightbackground=COLOR_BORDER,
                  justify="center").pack(side=tk.LEFT, padx=(0, 12))
+
+        tk.Label(barra_disp, text="n ▶", font=(FONT_MONO, 9, "bold"),
+                 fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.LEFT, padx=(0, 4))
+        self.n_var = tk.IntVar(value=N_INICIAL)
+        self.spin_n = tk.Spinbox(barra_disp, from_=N_MIN, to=N_MAX, increment=10,
+                                 textvariable=self.n_var, width=5, font=(FONT_MONO, 9),
+                                 bg="#08101E", fg=COLOR_CYAN, insertbackground=COLOR_CYAN,
+                                 highlightthickness=1, highlightbackground=COLOR_BORDER,
+                                 command=self.on_cambio_n)
+        self.spin_n.pack(side=tk.LEFT, padx=(0, 12))
+        self.spin_n.bind("<Return>", self.on_cambio_n)
+        self.spin_n.bind("<FocusOut>", self.on_cambio_n)
+
+        tk.Label(barra_disp, text="R [Ω] ▶", font=(FONT_MONO, 9, "bold"),
+                 fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.LEFT, padx=(0, 4))
+        self.r_var = tk.StringVar(value=f"{R_CARGA_INICIAL:g}")
+        ent_r = tk.Entry(barra_disp, textvariable=self.r_var, width=6, font=(FONT_MONO, 9),
+                         bg="#08101E", fg=COLOR_TEXT_WHITE, insertbackground=COLOR_CYAN,
+                         highlightthickness=1, highlightbackground=COLOR_BORDER,
+                         justify="center")
+        ent_r.pack(side=tk.LEFT, padx=(0, 12))
+        ent_r.bind("<Return>", self.on_cambio_parametro)
+        ent_r.bind("<KeyRelease>", self.on_cambio_parametro)
 
         self.lbl_zcd = tk.Label(barra_disp, text="ZCD: -- (sin datos)", font=(FONT_MONO, 9, "bold"),
                                 fg=COLOR_TEXT_DIM, bg=COLOR_PANEL)
@@ -368,7 +396,7 @@ class OsciloscopioApp:
 
         footer = tk.Frame(parent, bg=COLOR_BG)
         footer.pack(side=tk.BOTTOM, fill=tk.X, pady=8)
-        tk.Label(footer, text="ENGINE: FOURIER DFT 1000 PTS\nMCU: ESP32 DSP TELEMETRY",
+        tk.Label(footer, text="ENGINE: FOURIER DFT n = 120-720 PTS\nMCU: ESP32 DSP TELEMETRY",
                  font=(FONT_MONO, 8), fg=COLOR_TEXT_DIM, bg=COLOR_BG, justify=tk.LEFT).pack(anchor="w")
 
     # ==========================================================================
@@ -514,7 +542,8 @@ class OsciloscopioApp:
                 i_raw.append(v * 0.6)
 
         self.v_orig = [val * vp for val in v_raw]
-        self.i_orig = [val * (vp / 15.0) for val in i_raw]
+        # Carga resistiva: i = v / R  (v = val * vp  =>  i = val * vp / R)
+        self.i_orig = [val * (vp / self.leer_resistencia()) for val in i_raw]
 
         # Actualización de métricas analíticas ideales
         self.metricas_teoricas = self.calcular_teorico_analitico(self.nombre_corto, vp, alfa_deg)
@@ -729,6 +758,37 @@ class OsciloscopioApp:
     # ----------------------------------------------------------------------
     # DISPARO (comandos CTRL al ESP32)
     # ----------------------------------------------------------------------
+    def leer_resistencia(self):
+        """R de la carga [ohm]. Si el campo es inválido o <= 0 se usa el valor inicial."""
+        try:
+            r = float(self.r_var.get())
+            return r if r > 0 else R_CARGA_INICIAL
+        except (ValueError, AttributeError):
+            return R_CARGA_INICIAL
+
+    def on_cambio_n(self, event=None):
+        """Cambió n (muestras por vector, 120..720): reconstruye todo con el nuevo n."""
+        global PUNTOS
+        try:
+            n = int(float(self.spin_n.get()))
+        except (ValueError, AttributeError):
+            n = N_INICIAL
+        n = max(N_MIN, min(N_MAX, n))
+        self.n_var.set(n)
+        if n == PUNTOS:
+            return
+        PUNTOS = n
+        self.deg_x = [360.0 * (k / PUNTOS) for k in range(PUNTOS)]
+        self.v_orig = [0.0] * PUNTOS
+        self.i_orig = [0.0] * PUNTOS
+        self.v_recon = [0.0] * PUNTOS
+        # Con n muestras por período solo hay n/2 armónicos válidos (Nyquist).
+        n_arm_max = min(300, PUNTOS // 2)
+        self.spin_arm.config(to=n_arm_max)
+        if self.armonicos_var.get() > n_arm_max:
+            self.armonicos_var.set(n_arm_max)
+        self.on_cambio_parametro()
+
     def enviar_texto(self, texto):
         """Manda una línea de texto al ESP32 (USB o WiFi). Devuelve True si se envió."""
         if self.serial_port and self.serial_port.is_open:
@@ -741,12 +801,16 @@ class OsciloscopioApp:
         return False
 
     def modo_disparo_actual(self):
-        """RMMOC / RMOCC según la señal elegida, o None si no es un rectificador controlado."""
+        """RMMOC / RMOCC (rectificador) o INVSQ / INVQS (inversor) según la señal elegida; None si no aplica."""
         tipo = self.tipo_var.get()
         if "RMMOC" in tipo:
             return "RMMOC"
         if "RMOCC" in tipo:
             return "RMOCC"
+        if "Cuadrada" in tipo:
+            return "INVSQ"          # inversor: onda cuadrada (puente H)
+        if "Cuasi" in tipo:
+            return "INVQS"          # inversor: onda cuasicuadrada (puente H)
         return None
 
     def enviar_comando_disparo(self):
@@ -767,7 +831,7 @@ class OsciloscopioApp:
             self.btn_disparo.config(text="[ ARMAR ]", fg=COLOR_AMBER)
             return
         if self.modo_disparo_actual() is None:
-            self.lbl_zcd.config(text="ELEGÍ RMMOC O RMOCC PARA DISPARAR", fg="#E76F51")
+            self.lbl_zcd.config(text="ELEGÍ RMMOC, RMOCC, CUADRADA O CUASI", fg="#E76F51")
             return
         if not (self.serial_port and self.serial_port.is_open):
             self.lbl_zcd.config(text="SIN ENLACE CON EL ESP32", fg="#E76F51")
@@ -809,9 +873,9 @@ class OsciloscopioApp:
             freq = self.freq_var.get()
             muestras_norm = [f"{v / vp:.4f}" for v in self.v_orig]
             muestras_corriente = [f"{i:.4f}" for i in self.i_orig]
-            armonicos = max(1, min(300, int(self.armonicos_var.get())))
+            armonicos = max(1, min(300, PUNTOS // 2, int(self.armonicos_var.get())))
             trama = (
-                f"{self.nombre_corto},{vp:.2f},{freq},{armonicos},"
+                f"{self.nombre_corto},{vp:.2f},{freq},{armonicos},{PUNTOS},"
                 f"{','.join(muestras_norm)},{','.join(muestras_corriente)}\n"
             )
             try:

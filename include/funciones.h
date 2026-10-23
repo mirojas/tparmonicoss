@@ -3,7 +3,9 @@
 
 #include <Arduino.h>
 
-#define MAX_PUNTOS 1000
+#define MAX_PUNTOS 720         // máximo de muestras por vector (consigna: n entre 120 y 720)
+#define MIN_PUNTOS 120         // mínimo de muestras por vector
+#define N_INICIAL 360          // n inicial de la consigna
 #define MAX_ARMONICOS 300
 #define TIMEOUT_AUTO_MS 450
 #define TCP_PUERTO 5000        // puerto TCP donde la app Python se conecta por WiFi
@@ -14,6 +16,8 @@ struct FourierAnalyzer {
     float vmax;
     int armonicos_sel;
     int armonicos_act;
+    int n_muestras;      // n actual: muestras por vector (120..720). Lo fija configurar_n()
+    int n_arm_max;       // máximo de armónicos válidos = min(MAX_ARMONICOS, n/2) (Nyquist)
 
     // Muestras crudas de entrada (1 período)
     float vector_in[MAX_PUNTOS];
@@ -57,12 +61,12 @@ extern volatile bool cambio_pendiente;        // definido en display.cpp
 // ---------------------------------------------------------------------------
 // fourier.cpp: análisis de Fourier y métricas
 // ---------------------------------------------------------------------------
-// Tablas de cos y sin de 2*pi*j/MAX_PUNTOS, j = 0..MAX_PUNTOS-1 (llenar UNA vez con init_tablas_trig()).
-// Como los ángulos del análisis son siempre 2*pi*n*k/MAX_PUNTOS, cos(n*theta_k) = tabla_cos[(n*k) % MAX_PUNTOS]:
+// Tablas de cos y sin de 2*pi*j/n, j = 0..n-1, con n = fa.n_muestras (se recalculan en configurar_n()).
+// Como los ángulos del análisis son siempre 2*pi*h*k/n, cos(h*theta_k) = tabla_cos[(h*k) % n]:
 // se evita llamar millones de veces a cosf/sinf (por software en el ESP32, no tiene FPU trigonométrica).
 extern float tabla_cos[MAX_PUNTOS];
 extern float tabla_sin[MAX_PUNTOS];
-void init_tablas_trig();
+void configurar_n(int n);   // fija n (120..720), recalcula tablas y el máximo de armónicos
 
 void analizar_fourier();
 void calcular_metricas_y_reportar(int n_arm);

@@ -4,7 +4,7 @@
 void setup() {
     Serial.setRxBufferSize(24000);
     Serial.begin(115200);
-    init_tablas_trig();   // antes de cualquier cálculo de Fourier o dibujo
+    configurar_n(N_INICIAL);   // n = 360 (consigna); prepara tablas antes de cualquier cálculo
     init_hardware();
     init_control();       // timer y gates (en bajo) ANTES de habilitar la interrupción del ZCD
     init_zcd();

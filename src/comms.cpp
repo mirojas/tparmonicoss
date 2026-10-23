@@ -1,7 +1,7 @@
 // comms.cpp — Comunicación con la app Python: por cable USB (serie) y por WiFi (TCP).
 //
 // Las dos vías usan EXACTAMENTE el mismo protocolo de texto (una línea por mensaje):
-//   PC -> ESP32:  tipo,vmax,freq,N,v[0..999],i[0..999]\n
+//   PC -> ESP32:  tipo,vmax,freq,Narm,n,v[0..n-1],i[0..n-1]\n
 //   ESP32 -> PC:  DATA_METRICAS,N,...\n   (ver fourier.cpp)
 // Cualquier línea que entra por serie o por TCP pasa por procesar_trama(); y todo lo
 // que el ESP32 responde sale por enviar_linea(), que escribe en Serial y, si hay
@@ -51,25 +51,37 @@ static void procesar_trama(size_t bytes_leidos) {
         token = strtok(NULL, ",");
         if (token != NULL) strncpy(fa.freq, token, sizeof(fa.freq) - 1);
 
+        // Cantidad de armónicos pedida (se limita DESPUÉS de conocer n, ver más abajo).
         token = strtok(NULL, ",");
-        if (token != NULL) {
-            fa.armonicos_act = constrain(atoi(token), 1, MAX_ARMONICOS);
-            fa.armonicos_sel = fa.armonicos_act;
-        }
+        const int armonicos_pedidos = (token != NULL) ? atoi(token) : 1;
 
+        // n: muestras por vector (consigna: entre 120 y 720). Viene en la trama, así el
+        // ESP32 sabe cuántos valores esperar. Si está fuera de rango se descarta la trama.
+        token = strtok(NULL, ",");
+        const int n_recibido = (token != NULL) ? atoi(token) : 0;
+        if (n_recibido < MIN_PUNTOS || n_recibido > MAX_PUNTOS) {
+            enviar_linea("ERROR_N,fuera_de_120_720\n");
+            return;
+        }
+        configurar_n(n_recibido);                 // recalcula tablas y n_arm_max si cambió
+        fa.armonicos_act = constrain(armonicos_pedidos, 1, fa.n_arm_max);
+        fa.armonicos_sel = fa.armonicos_act;
+
+        // Primero n valores de tensión y después n de corriente.
+        const int n = fa.n_muestras;
         int idx = 0;
         token = strtok(NULL, ",");
-        while (token != NULL && idx < (2 * MAX_PUNTOS)) {
-            if (idx < MAX_PUNTOS) {
+        while (token != NULL && idx < (2 * n)) {
+            if (idx < n) {
                 fa.vector_in[idx] = atof(token);
             } else {
-                fa.corriente_in[idx - MAX_PUNTOS] = atof(token);
+                fa.corriente_in[idx - n] = atof(token);
             }
             idx++;
             token = strtok(NULL, ",");
         }
 
-        if (idx == (2 * MAX_PUNTOS)) {
+        if (idx == (2 * n)) {
             fa.datos_listos = true;
             
             // Conserva N armónicos actuales

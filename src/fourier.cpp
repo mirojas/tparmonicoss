@@ -24,11 +24,19 @@ FourierAnalyzer fa = {};
 float tabla_cos[MAX_PUNTOS];
 float tabla_sin[MAX_PUNTOS];
 
-// Llena las tablas. Se calcula en double para que cada entrada quede redondeada
-// correctamente a float (más preciso que acumular ángulos en float como antes).
-void init_tablas_trig() {
-    for (int j = 0; j < MAX_PUNTOS; j++) {
-        const double ang = 2.0 * M_PI * (double)j / (double)MAX_PUNTOS;
+// Fija la cantidad de muestras por vector y prepara todo lo que depende de ella.
+//  - n: consigna del TP, entre 120 y 720 (se limita si viene fuera de rango).
+//  - n_arm_max: con n muestras por período solo se pueden analizar n/2 armónicos
+//    (criterio de Nyquist: por encima habría aliasing), con tope en MAX_ARMONICOS.
+//  - Tablas de cos/sin: cada entrada se calcula en double para que quede redondeada
+//    correctamente a float. Se recalculan solo cuando n cambia (son ~720 cos/sin).
+void configurar_n(int n) {
+    n = constrain(n, MIN_PUNTOS, MAX_PUNTOS);
+    if (n == fa.n_muestras) return;
+    fa.n_muestras = n;
+    fa.n_arm_max = min(MAX_ARMONICOS, n / 2);
+    for (int j = 0; j < n; j++) {
+        const double ang = 2.0 * M_PI * (double)j / (double)n;
         tabla_cos[j] = (float)cos(ang);
         tabla_sin[j] = (float)sin(ang);
     }
@@ -36,7 +44,7 @@ void init_tablas_trig() {
 
 // 1. Correlación Ortogonal de Fourier Discreta
 static void calcular_coeficientes(const float* vector, float& a0, float* an, float* bn) {
-    const int M = MAX_PUNTOS;
+    const int M = fa.n_muestras;
     const float factor_dos_m = 2.0f / (float)M;
 
     float suma_dc = 0.0f;
@@ -45,11 +53,11 @@ static void calcular_coeficientes(const float* vector, float& a0, float* an, flo
     }
     a0 = suma_dc / (float)M;
 
-    for (int n = 1; n <= MAX_ARMONICOS; n++) {
+    for (int n = 1; n <= fa.n_arm_max; n++) {
         float suma_cos = 0.0f;
         float suma_sin = 0.0f;
         // idx = (n*k) mod M, calculado de forma incremental: en cada paso se suma n
-        // y, si se pasó de M, se resta M (vale porque n <= MAX_ARMONICOS < M). Evita la división.
+        // y, si se pasó de M, se resta M (vale porque n <= n/2 < M). Evita la división.
         int idx = 0;
         for (int k = 0; k < M; k++) {
             suma_cos += vector[k] * tabla_cos[idx];
@@ -70,7 +78,7 @@ void analizar_fourier() {
 
 // 2. Síntesis y cálculo de métricas
 void calcular_metricas_y_reportar(int n_arm) {
-    const int M = MAX_PUNTOS;
+    const int M = fa.n_muestras;
     float v_max = -9999.0f;
     float v_min = 9999.0f;
     float i_max = -9999.0f;
