@@ -33,6 +33,29 @@ void enviar_linea(const char* linea) {
 static void procesar_trama(size_t bytes_leidos) {
     rx_buffer[bytes_leidos] = '\0';
 
+    // Pedido de captura por ADC: "ADC,vmax,R,Narm,n". El ESP32 mide V e I (sincronizado
+    // con el ZCD) y responde ADC_DATA (muestras) + DATA_METRICAS (resultados).
+    if (strncmp(rx_buffer, "ADC,", 4) == 0) {
+        strtok(rx_buffer, ",");                                   // descarta "ADC"
+        char* t = strtok(NULL, ",");
+        if (t != NULL) fa.vmax = atof(t);
+        t = strtok(NULL, ",");
+        const float r_ohm = (t != NULL) ? atof(t) : 100.0f;
+        t = strtok(NULL, ",");
+        const int armonicos_pedidos = (t != NULL) ? atoi(t) : 1;
+        t = strtok(NULL, ",");
+        const int n_pedido = (t != NULL) ? atoi(t) : 0;
+        if (n_pedido < MIN_PUNTOS || n_pedido > MAX_PUNTOS) {
+            enviar_linea("ERROR_N,fuera_de_120_720\n");
+            return;
+        }
+        configurar_n(n_pedido);
+        fa.armonicos_act = constrain(armonicos_pedidos, 1, fa.n_arm_max);
+        fa.armonicos_sel = fa.armonicos_act;
+        adc_pedir(r_ohm);
+        return;
+    }
+
     // Comandos de control de disparo ("CTRL,..."): son cortos, por eso se
     // reconocen ANTES del filtro de longitud de las tramas de vectores.
     if (strncmp(rx_buffer, "CTRL,", 5) == 0) {

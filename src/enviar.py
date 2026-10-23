@@ -123,9 +123,14 @@ class OsciloscopioApp:
             "3. Cuasi Senoidal (120°)",
             "4. RMMOC (Media Onda Controlado)",
             "5. RMOCC (Onda Completa Controlado)",
-            "6. RTMO (Trifasico Media Onda)"
-            
+            "6. RTMO (Trifasico Media Onda)",
+            "7. ADC (V e I medidos por el ESP32)"
         ]
+
+        # Última captura del ADC (la manda el ESP32 en la línea ADC_DATA):
+        # tensión normalizada (-1..1) y corriente en amperes, n muestras cada una.
+        self.adc_v = []
+        self.adc_i = []
         
         self.tipo_var = tk.StringVar(value=self.senales_disponibles[0])
         self.armonicos_var = tk.IntVar(value=5)
@@ -275,6 +280,13 @@ class OsciloscopioApp:
                                      activeforeground="#FFFFFF", bd=0, padx=10, pady=2,
                                      command=self.alternar_disparo)
         self.btn_disparo.pack(side=tk.LEFT, padx=(0, 12))
+
+        # Captura manual del ADC (solo tiene efecto con la señal "7. ADC").
+        self.btn_adc = tk.Button(barra_disp, text="[ CAPTURAR ADC ]", font=(FONT_MONO, 8, "bold"),
+                                 bg="#0E223D", fg=COLOR_CYAN, activebackground="#163866",
+                                 activeforeground="#FFFFFF", bd=0, padx=10, pady=2,
+                                 command=self.capturar_adc)
+        self.btn_adc.pack(side=tk.LEFT, padx=(0, 12))
 
         tk.Label(barra_disp, text="ANCHO / T.MUERTO [µs] ▶", font=(FONT_MONO, 9, "bold"),
                  fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.LEFT, padx=(0, 4))
@@ -541,12 +553,37 @@ class OsciloscopioApp:
                 v_raw.append(v)
                 i_raw.append(v * 0.6)
 
+        elif "7. ADC" in tipo_str:
+            # Señal REAL: son las muestras que midió el ESP32 con su ADC (última captura).
+            # Si todavía no hay una captura de n muestras, se muestra una línea en cero.
+            self.nombre_corto = "ADC"
+            if len(self.adc_v) == PUNTOS and len(self.adc_i) == PUNTOS:
+                v_raw = list(self.adc_v)
+                escala_i = vp / self.leer_resistencia()    # [A] a fondo de escala
+                i_raw = [x / escala_i for x in self.adc_i]
+            else:
+                v_raw = [0.0] * PUNTOS
+                i_raw = [0.0] * PUNTOS
+
+        if self.nombre_corto != "ADC":
+            # La consigna fija una carga puramente resistiva (R = 100 ohm): i(t) = v(t)/R,
+            # con la misma forma que v. Se descartan las formas de corriente de demostración.
+            i_raw = list(v_raw)
+
         self.v_orig = [val * vp for val in v_raw]
         # Carga resistiva: i = v / R  (v = val * vp  =>  i = val * vp / R)
         self.i_orig = [val * (vp / self.leer_resistencia()) for val in i_raw]
 
         # Actualización de métricas analíticas ideales
         self.metricas_teoricas = self.calcular_teorico_analitico(self.nombre_corto, vp, alfa_deg)
+        if self.nombre_corto == "ADC":
+            # Una señal medida no tiene fórmula teórica: la columna "TEÓRICO" pasa a ser el
+            # cálculo de referencia de la PC con las MISMAS muestras que midió el ESP32.
+            self.metricas_teoricas.update({
+                "Vmax": max(self.v_orig), "Vmin": min(self.v_orig),
+                "Vavg": sum(self.v_orig) / PUNTOS,
+                "Vrms": math.sqrt(sum(x * x for x in self.v_orig) / PUNTOS),
+            })
         i_max = max(self.i_orig)
         i_min = min(self.i_orig)
         i_avg = sum(self.i_orig) / PUNTOS
@@ -870,10 +907,15 @@ class OsciloscopioApp:
                 vp = float(self.entry_vmax.get())
             except (ValueError, AttributeError):
                 vp = 311.13
+            armonicos = max(1, min(300, PUNTOS // 2, int(self.armonicos_var.get())))
+            if "7. ADC" in self.tipo_var.get():
+                # No se mandan vectores: se le pide al ESP32 que mida (ADC) y devuelva
+                # las muestras (ADC_DATA) y las métricas (DATA_METRICAS).
+                self.enviar_texto(f"ADC,{vp:.2f},{self.leer_resistencia():g},{armonicos},{PUNTOS}\n")
+                return
             freq = self.freq_var.get()
             muestras_norm = [f"{v / vp:.4f}" for v in self.v_orig]
             muestras_corriente = [f"{i:.4f}" for i in self.i_orig]
-            armonicos = max(1, min(300, PUNTOS // 2, int(self.armonicos_var.get())))
             trama = (
                 f"{self.nombre_corto},{vp:.2f},{freq},{armonicos},{PUNTOS},"
                 f"{','.join(muestras_norm)},{','.join(muestras_corriente)}\n"
@@ -899,12 +941,44 @@ class OsciloscopioApp:
 
                             if self.running_thread and self.root.winfo_exists():
                                 self.root.after(0, self.actualizar_telemetria_ui, n_act, metricas)
+                    elif linea.startswith("ADC_DATA"):
+                        # ADC_DATA,n,v[0..n-1],i[0..n-1]
+                        tokens = linea.split(",")
+                        n_rx = int(tokens[1])
+                        if len(tokens) == 2 + 2 * n_rx and self.running_thread and self.root.winfo_exists():
+                            datos = [float(x) for x in tokens[2:]]
+                            self.root.after(0, self.aplicar_captura_adc, datos[:n_rx], datos[n_rx:])
+                    elif linea.startswith("ADC_SIN_ZCD"):
+                        if self.running_thread and self.root.winfo_exists():
+                            self.root.after(0, lambda: self.lbl_zcd.config(
+                                text="ADC: SIN ZCD (conectá el generador a GPIO4)", fg="#E76F51"))
+                    elif linea.startswith("ADC_INFO"):
+                        print(linea)   # n, período y cuántas muestras llegaron tarde
                     elif linea.startswith("ZCD_ESTADO"):
                         if self.running_thread and self.root.winfo_exists():
                             self.root.after(0, self.actualizar_zcd_ui, linea.split(","))
                 time.sleep(0.02)
             except Exception:
                 break
+
+    def capturar_adc(self):
+        """Botón CAPTURAR ADC: pide una captura nueva (hace falta ZCD en el ESP32)."""
+        if "7. ADC" not in self.tipo_var.get():
+            self.lbl_zcd.config(text="ELEGÍ LA SEÑAL 7. ADC", fg="#E76F51")
+            return
+        if not (self.serial_port and self.serial_port.is_open):
+            self.lbl_zcd.config(text="SIN ENLACE CON EL ESP32", fg="#E76F51")
+            return
+        self.transmitir_al_esp32()
+
+    def aplicar_captura_adc(self, v_norm, i_amp):
+        """Llegó una captura del ADC: se guarda y se redibuja (hilo principal de Tk)."""
+        self.adc_v = v_norm
+        self.adc_i = i_amp
+        if "7. ADC" not in self.tipo_var.get() or len(v_norm) != PUNTOS:
+            return
+        self.generar_vectores_locales()
+        self.actualizar_graficos()
 
     def actualizar_telemetria_ui(self, n_act, metricas):
         try:

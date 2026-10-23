@@ -8,6 +8,7 @@ void setup() {
     init_hardware();
     init_control();       // timer y gates (en bajo) ANTES de habilitar la interrupción del ZCD
     init_zcd();
+    init_adc();           // ADC1: GPIO34 (V) y GPIO35 (I)
     init_wifi_ota();
 }
 
@@ -20,6 +21,7 @@ void loop() {
     recibir_datos_serial();
     atender_tcp();
     control_actualizar();
+    adc_actualizar();     // si la app pidió una captura, se hace acá (bloquea ~1 período)
     verificar_auto_reconstruccion();
     render_pantalla();
 }

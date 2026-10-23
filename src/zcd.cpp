@@ -72,6 +72,9 @@ bool zcd_presente() {
 // Se llama desde la ISR de control: va en IRAM.
 uint32_t IRAM_ATTR zcd_periodo_us() { return periodo_us; }
 
+// Instante del último cruce aceptado: adc.cpp lo usa como t = 0 de la captura.
+uint32_t zcd_ultimo_cruce_us() { return ultimo_cruce_us; }
+
 float zcd_frecuencia_hz() {
     const uint32_t p = periodo_us;
     return (p > 0) ? 1.0e6f / (float)p : 0.0f;

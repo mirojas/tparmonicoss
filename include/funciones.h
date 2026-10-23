@@ -102,6 +102,14 @@ void zcd_reanudar();
 bool zcd_presente();             // hay red/señal con período válido y reciente
 uint32_t zcd_periodo_us();       // último período medido [us]
 float zcd_frecuencia_hz();
+uint32_t zcd_ultimo_cruce_us();  // instante (micros) del último cruce aceptado
+
+// ---------------------------------------------------------------------------
+// adc.cpp: captura de V (GPIO34) e I (GPIO35) sincronizada con el ZCD
+// ---------------------------------------------------------------------------
+void init_adc();
+void adc_pedir(float r_ohm);     // pide una captura (comms.cpp, al recibir "ADC,...")
+void adc_actualizar();           // desde loop(): espera el cruce, muestrea y reporta
 
 // ---------------------------------------------------------------------------
 // control.cpp: disparo de rectificadores (gates de SCR) sincronizado con el ZCD
