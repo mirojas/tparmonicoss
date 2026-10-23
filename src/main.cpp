@@ -16,6 +16,7 @@ void loop() {
         return;
     }
     recibir_datos_serial();
+    atender_tcp();
     verificar_auto_reconstruccion();
     render_pantalla();
 }

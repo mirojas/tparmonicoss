@@ -154,9 +154,13 @@ void calcular_metricas_y_reportar(int n_arm) {
     fa.thd_v = (fund_v > 1e-12f) ? 100.0f * sqrtf(arm_v / fund_v) : 0.0f;
     fa.thd_i = (fund_i > 1e-12f) ? 100.0f * sqrtf(arm_i / fund_i) : 0.0f;
 
-    Serial.printf("DATA_METRICAS,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
-                  n_arm, fa.v_max_calc, fa.v_min_calc, fa.v_avg_calc, fa.v_rms_calc,
-                  fa.i_max_calc, fa.i_min_calc, fa.i_avg_calc, fa.i_rms_calc,
-                  fa.potencia_s, fa.potencia_p, fa.potencia_q, fa.potencia_d,
-                  fa.factor_potencia, fa.thd_v, fa.thd_i);
+    // Se arma la línea en un buffer y se manda por todos los canales (USB y WiFi).
+    char linea[320];
+    snprintf(linea, sizeof(linea),
+             "DATA_METRICAS,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+             n_arm, fa.v_max_calc, fa.v_min_calc, fa.v_avg_calc, fa.v_rms_calc,
+             fa.i_max_calc, fa.i_min_calc, fa.i_avg_calc, fa.i_rms_calc,
+             fa.potencia_s, fa.potencia_p, fa.potencia_q, fa.potencia_d,
+             fa.factor_potencia, fa.thd_v, fa.thd_i);
+    enviar_linea(linea);
 }

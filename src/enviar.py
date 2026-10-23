@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import serial
 import serial.tools.list_ports
+import socket
+import select
+import os
 import threading
 import time
 import math
@@ -29,6 +32,71 @@ FONT_MONO = "Consolas"
 
 PUNTOS = 1000
 
+TCP_PUERTO = 5000                       # debe coincidir con TCP_PUERTO del firmware
+ARCHIVO_IP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "esp32_ip.txt")
+
+
+class ConexionTCP:
+    """Conexión por WiFi al ESP32 con la MISMA interfaz que serial.Serial.
+
+    Así el resto de la app (transmitir_al_esp32, hilo_lectura_serie) funciona igual
+    sin saber si habla por cable o por WiFi. Solo usa: is_open, in_waiting,
+    readline(), write(), flush(), close().
+    """
+
+    def __init__(self, host, puerto=TCP_PUERTO, timeout_conexion=3.0):
+        self.sock = socket.create_connection((host, puerto), timeout=timeout_conexion)
+        # Timeout largo solo para ESCRIBIR: el ESP32 puede estar calculando unos segundos
+        # y mientras tanto no vacía su buffer de recepción; sendall espera sin fallar.
+        self.sock.settimeout(15.0)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.buf = b""
+        self.is_open = True
+
+    def _llenar(self, espera=0.02):
+        # select evita bloquear: solo se lee si ya hay datos esperando.
+        try:
+            listo, _, _ = select.select([self.sock], [], [], espera)
+            if listo:
+                datos = self.sock.recv(4096)
+                if not datos:                 # el ESP32 cerró la conexión
+                    self.is_open = False
+                else:
+                    self.buf += datos
+        except OSError:
+            self.is_open = False
+
+    @property
+    def in_waiting(self):
+        self._llenar(0)
+        return len(self.buf)
+
+    def readline(self):
+        limite = time.time() + 0.5
+        while b"\n" not in self.buf and self.is_open and time.time() < limite:
+            self._llenar(0.05)
+        if b"\n" in self.buf:
+            linea, self.buf = self.buf.split(b"\n", 1)
+            return linea + b"\n"
+        return b""
+
+    def reset_input_buffer(self):
+        self.buf = b""
+
+    def write(self, datos):
+        self.sock.sendall(datos)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.is_open = False
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
 class OsciloscopioApp:
     def __init__(self, root):
         self.root = root
@@ -39,6 +107,7 @@ class OsciloscopioApp:
         # Variables de control y concurrencia
         self.running_thread = True
         self.serial_port = None
+        self._lectura_id = 0            # identifica al hilo de lectura vigente
         self.bloqueo_tx_echo = False
 
         # Catálogo de señales
@@ -170,6 +239,22 @@ class OsciloscopioApp:
         self.lbl_status = tk.Label(header, text="● SEARCHING ESP32...", font=(FONT_MONO, 9, "bold"),
                                    fg=COLOR_AMBER, bg=COLOR_PANEL)
         self.lbl_status.pack(side=tk.RIGHT, padx=12)
+
+        # Conexión por WiFi: IP del ESP32 (la imprime en el monitor serie: WIFI_READY,<IP>)
+        btn_wifi = tk.Button(header, text="[ WIFI ]", font=(FONT_MONO, 8, "bold"),
+                             bg="#0E223D", fg=COLOR_CYAN, activebackground="#163866",
+                             activeforeground="#FFFFFF", bd=0, padx=10, pady=2,
+                             command=self.conectar_wifi)
+        btn_wifi.pack(side=tk.RIGHT, padx=(0, 4))
+        self.ip_var = tk.StringVar(value=self.leer_ip_guardada())
+        self.entry_ip = tk.Entry(header, textvariable=self.ip_var, width=15,
+                                 font=(FONT_MONO, 9), bg="#08101E", fg=COLOR_TEXT_WHITE,
+                                 insertbackground=COLOR_CYAN, highlightthickness=1,
+                                 highlightbackground=COLOR_BORDER, justify="center")
+        self.entry_ip.pack(side=tk.RIGHT, padx=(0, 4))
+        self.entry_ip.bind("<Return>", lambda e: self.conectar_wifi())
+        tk.Label(header, text="ESP32 IP ▶", font=(FONT_MONO, 9, "bold"),
+                 fg=COLOR_CYAN, bg=COLOR_PANEL).pack(side=tk.RIGHT, padx=(0, 4))
 
         # 2. CONTENEDOR PRINCIPAL
         main_frame = tk.Frame(self.root, bg=COLOR_BG)
@@ -550,12 +635,60 @@ class OsciloscopioApp:
                 ser.reset_input_buffer()
                 self.serial_port = ser
                 self.lbl_status.config(text=f"● ESP32 ONLINE // {p}", fg=COLOR_CYAN)
-                threading.Thread(target=self.hilo_lectura_serie, daemon=True).start()
+                self.iniciar_lectura()
                 self.transmitir_al_esp32()
                 return
             except Exception:
                 continue
+        # Sin cable: si hay una IP guardada, se intenta por WiFi.
+        if self.ip_var.get().strip() and self.conectar_wifi(silencioso=True):
+            return
         self.lbl_status.config(text="● LOCAL MODE // NO PORT", fg="#E76F51")
+
+    def leer_ip_guardada(self):
+        try:
+            with open(ARCHIVO_IP, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
+    def iniciar_lectura(self):
+        """Lanza un hilo de lectura nuevo; el anterior (si había) termina solo."""
+        self._lectura_id += 1
+        threading.Thread(target=self.hilo_lectura_serie, args=(self._lectura_id,),
+                         daemon=True).start()
+
+    def conectar_wifi(self, silencioso=False):
+        ip = self.ip_var.get().strip()
+        if not ip:
+            self.lbl_status.config(text="● WIFI: FALTA IP", fg="#E76F51")
+            return False
+        self.lbl_status.config(text=f"● CONECTANDO WIFI // {ip}...", fg=COLOR_AMBER)
+        self.root.update_idletasks()
+        try:
+            con = ConexionTCP(ip)
+        except OSError as e:
+            if not silencioso:
+                print(f"[WIFI ERR] {e}")
+            self.lbl_status.config(text=f"● WIFI SIN RESPUESTA // {ip}", fg="#E76F51")
+            return False
+        # Se cierra la conexión anterior (USB o WiFi) y se reemplaza por la nueva.
+        anterior = self.serial_port
+        self.serial_port = con
+        if anterior is not None:
+            try:
+                anterior.close()
+            except Exception:
+                pass
+        try:
+            with open(ARCHIVO_IP, "w", encoding="utf-8") as f:
+                f.write(ip)
+        except OSError:
+            pass
+        self.lbl_status.config(text=f"● ESP32 ONLINE // WIFI {ip}", fg=COLOR_CYAN)
+        self.iniciar_lectura()
+        self.transmitir_al_esp32()
+        return True
 
     def transmitir_al_esp32(self):
         if self.serial_port and self.serial_port.is_open:
@@ -577,8 +710,10 @@ class OsciloscopioApp:
             except Exception as e:
                 print(f"[TX ERR] {e}")
 
-    def hilo_lectura_serie(self):
-        while self.running_thread:
+    def hilo_lectura_serie(self, mi_id=None):
+        if mi_id is None:
+            mi_id = self._lectura_id
+        while self.running_thread and mi_id == self._lectura_id:
             try:
                 if self.serial_port and self.serial_port.is_open and self.serial_port.in_waiting:
                     linea = self.serial_port.readline().decode('utf-8', errors='ignore').strip()

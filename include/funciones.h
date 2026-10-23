@@ -6,6 +6,7 @@
 #define MAX_PUNTOS 1000
 #define MAX_ARMONICOS 300
 #define TIMEOUT_AUTO_MS 450
+#define TCP_PUERTO 5000        // puerto TCP donde la app Python se conecta por WiFi
 
 struct FourierAnalyzer {
     char tipo[16];
@@ -76,9 +77,11 @@ void verificar_auto_reconstruccion();
 void render_pantalla();
 
 // ---------------------------------------------------------------------------
-// comms.cpp: protocolo serie con la app Python
+// comms.cpp: protocolo con la app Python (USB serie y WiFi TCP)
 // ---------------------------------------------------------------------------
 void recibir_datos_serial();
+void atender_tcp();                      // recepción por WiFi (TCP), llamar desde loop()
+void enviar_linea(const char* linea);   // responde por USB y por WiFi (si hay cliente)
 
 // ---------------------------------------------------------------------------
 // ota.cpp: WiFi + OTA

@@ -8,3 +8,4 @@ __pycache__/
 
 include/secrets.h
 platformio_local*.ini
+src/esp32_ip.txt
