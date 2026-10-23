@@ -1,0 +1,1422 @@
+From 9235f374539c828062f5aece567db74c2c4ba980 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 23 Oct 2026 19:09:45 +0000
+Subject: [PATCH] =?UTF-8?q?Paso=201:=20separar=20funciones.cpp=20en=20m?=
+ =?UTF-8?q?=C3=B3dulos=20(sin=20cambios=20de=20l=C3=B3gica)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- fourier.cpp: Fourier discreto + métricas
+- comms.cpp: protocolo serie con la app Python
+- display.cpp: OLED, osciloscopio y encoder
+- ota.cpp: WiFi + OTA
+- funciones.h: declara el estado compartido (fa, flags)
+- Se quita src/reference/*.ino (PlatformIO compilaría el .ino con
+  setup/loop duplicados; la copia sigue en backup/reference/)
+- Se deja de versionar __pycache__
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01F2a5n6eLzD56ABLHnqdRfZ
+---
+ .gitignore                             |   2 +
+ include/funciones.h                    |  40 ++-
+ src/__pycache__/enviar.cpython-313.pyc | Bin 39917 -> 0 bytes
+ src/comms.cpp                          |  58 ++++
+ src/display.cpp                        | 169 +++++++++++
+ src/fourier.cpp                        | 121 ++++++++
+ src/funciones.cpp                      | 385 -------------------------
+ src/ota.cpp                            |  53 ++++
+ src/reference/SCR_OTA_14.ino           | 128 --------
+ 9 files changed, 435 insertions(+), 521 deletions(-)
+ delete mode 100644 src/__pycache__/enviar.cpython-313.pyc
+ create mode 100644 src/fourier.cpp
+ delete mode 100644 src/funciones.cpp
+ delete mode 100644 src/reference/SCR_OTA_14.ino
+
+diff --git a/.gitignore b/.gitignore
+index 89cc49c..244a72a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -3,3 +3,5 @@
+ .vscode/c_cpp_properties.json
+ .vscode/launch.json
+ .vscode/ipch
++__pycache__/
++*.pyc
+diff --git a/include/funciones.h b/include/funciones.h
+index 3f9a6ec..35bf695 100644
+--- a/include/funciones.h
++++ b/include/funciones.h
+@@ -13,11 +13,11 @@ struct FourierAnalyzer {
+     float vmax;
+     int armonicos_sel;
+     int armonicos_act;
+-    
++
+     // Muestras crudas de entrada (1 período)
+     float vector_in[MAX_PUNTOS];
+     float corriente_in[MAX_PUNTOS];
+-    
++
+     // Coeficientes de Fourier
+     float a0;
+     float an[MAX_ARMONICOS + 1];
+@@ -25,7 +25,7 @@ struct FourierAnalyzer {
+     float a0_i;
+     float an_i[MAX_ARMONICOS + 1];
+     float bn_i[MAX_ARMONICOS + 1];
+-    
++
+     // Métricas eléctricas calculadas
+     float v_max_calc;
+     float v_min_calc;
+@@ -40,15 +40,39 @@ struct FourierAnalyzer {
+     float potencia_q;
+     float potencia_d;
+     float factor_potencia;
+-    
++
+     bool datos_listos;
+ };
+ 
++// ---------------------------------------------------------------------------
++// Estado compartido entre módulos (cada variable se DEFINE en un solo .cpp)
++// ---------------------------------------------------------------------------
++extern FourierAnalyzer fa;                    // definido en fourier.cpp
++extern volatile bool actualizar_pantalla;     // definido en display.cpp
++extern volatile bool cambio_pendiente;        // definido en display.cpp
++
++// ---------------------------------------------------------------------------
++// fourier.cpp: análisis de Fourier y métricas
++// ---------------------------------------------------------------------------
++void analizar_fourier();
++void calcular_metricas_y_reportar(int n_arm);
++
++// ---------------------------------------------------------------------------
++// display.cpp: OLED + encoder
++// ---------------------------------------------------------------------------
+ void init_hardware();
+-void init_wifi_ota();
+-void atender_wifi_ota();
+-void recibir_datos_serial();
+ void verificar_auto_reconstruccion();
+ void render_pantalla();
+ 
+-#endif
+\ No newline at end of file
++// ---------------------------------------------------------------------------
++// comms.cpp: protocolo serie con la app Python
++// ---------------------------------------------------------------------------
++void recibir_datos_serial();
++
++// ---------------------------------------------------------------------------
++// ota.cpp: WiFi + OTA
++// ---------------------------------------------------------------------------
++void init_wifi_ota();
++void atender_wifi_ota();
++
++#endif
+diff --git a/src/__pycache__/enviar.cpython-313.pyc b/src/__pycache__/enviar.cpython-313.pyc
+deleted file mode 100644
+index d37fb03df48f65389fed35616bb4c6e87101442f..0000000000000000000000000000000000000000
+GIT binary patch
+literal 0
+HcmV?d00001
+
+literal 39917
+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
+E1NmS0y8r+H
+
+diff --git a/src/comms.cpp b/src/comms.cpp
+index e69de29..4b5689f 100644
+--- a/src/comms.cpp
++++ b/src/comms.cpp
+@@ -0,0 +1,58 @@
++// comms.cpp — Protocolo serie con la app Python (recepción de vectores).
++// (Movido sin cambios de lógica desde funciones.cpp)
++#include "funciones.h"
++#include <string.h>
++
++static char rx_buffer[24000];
++
++// 4. Recepción UART sin bloqueo de buffer
++void recibir_datos_serial() {
++    if (Serial.available() > 0) {
++        size_t bytes_leidos = Serial.readBytesUntil('\n', rx_buffer, sizeof(rx_buffer) - 1);
++        rx_buffer[bytes_leidos] = '\0';
++
++        if (bytes_leidos > 10) {
++            char* token = strtok(rx_buffer, ",");
++            if (token != NULL) strncpy(fa.tipo, token, sizeof(fa.tipo) - 1);
++
++            token = strtok(NULL, ",");
++            if (token != NULL) fa.vmax = atof(token);
++
++            token = strtok(NULL, ",");
++            if (token != NULL) strncpy(fa.freq, token, sizeof(fa.freq) - 1);
++
++            token = strtok(NULL, ",");
++            if (token != NULL) {
++                fa.armonicos_act = constrain(atoi(token), 1, MAX_ARMONICOS);
++                fa.armonicos_sel = fa.armonicos_act;
++            }
++
++            int idx = 0;
++            token = strtok(NULL, ",");
++            while (token != NULL && idx < (2 * MAX_PUNTOS)) {
++                if (idx < MAX_PUNTOS) {
++                    fa.vector_in[idx] = atof(token);
++                } else {
++                    fa.corriente_in[idx - MAX_PUNTOS] = atof(token);
++                }
++                idx++;
++                token = strtok(NULL, ",");
++            }
++
++            if (idx == (2 * MAX_PUNTOS)) {
++                fa.datos_listos = true;
++                
++                // Conserva N armónicos actuales
++                int n_mantener = (fa.armonicos_act >= 1) ? fa.armonicos_act : 1;
++                fa.armonicos_sel = n_mantener;
++                fa.armonicos_act = n_mantener;
++                
++                analizar_fourier();
++                calcular_metricas_y_reportar(n_mantener);
++                
++                cambio_pendiente = false;
++                actualizar_pantalla = true;
++            }
++        }
++    }
++}
+diff --git a/src/display.cpp b/src/display.cpp
+index e69de29..704d82a 100644
+--- a/src/display.cpp
++++ b/src/display.cpp
+@@ -0,0 +1,169 @@
++// display.cpp — OLED SSD1306, osciloscopio y encoder rotativo.
++// (Movido sin cambios de lógica desde funciones.cpp)
++#include "funciones.h"
++#include <Wire.h>
++#include <Adafruit_GFX.h>
++#include <Adafruit_SSD1306.h>
++#include <math.h>
++#include <string.h>
++
++#define PIN_DT       5
++#define PIN_CLK      18
++#define PIN_SDA      21
++#define PIN_SCL      22
++#define OLED_ADDR    0x3C
++
++
++static Adafruit_SSD1306 oled(128, 64, &Wire, -1);
++static bool oled_ok = false;
++volatile bool actualizar_pantalla = true;   // declarado extern en funciones.h
++volatile bool cambio_pendiente = false;     // declarado extern en funciones.h
++static volatile unsigned long t_ultimo_giro = 0;
++
++// 3. Encoder ISR
++IRAM_ATTR static void isr_encoder() {
++    static unsigned long t_ant = 0;
++    unsigned long t_act = millis();
++    unsigned long dt = t_act - t_ant;
++
++    if (dt > 10) {
++        int delta = (dt < 40) ? 5 : 1;
++
++        if (digitalRead(PIN_DT) == HIGH) {
++            fa.armonicos_sel = min(MAX_ARMONICOS, fa.armonicos_sel + delta);
++        } else {
++            fa.armonicos_sel = max(1, fa.armonicos_sel - delta);
++        }
++
++        cambio_pendiente = (fa.armonicos_sel != fa.armonicos_act);
++        t_ultimo_giro = t_act;
++        actualizar_pantalla = true;
++        t_ant = t_act;
++    }
++}
++
++void verificar_auto_reconstruccion() {
++    if (cambio_pendiente && (millis() - t_ultimo_giro > TIMEOUT_AUTO_MS)) {
++        fa.armonicos_act = fa.armonicos_sel;
++        cambio_pendiente = false;
++        actualizar_pantalla = true;
++        calcular_metricas_y_reportar(fa.armonicos_act);
++    }
++}
++
++// 5. Osciloscopio con Auto-Escalado Dinámico y Alta Velocidad
++static void dibujar_osciloscopio() {
++    const int x_inicio = 1;
++    const int x_fin = 126;
++    const int y_min = 13;
++    const int y_max = 63;
++    const int alto_util = y_max - y_min - 2; // ~48 px útiles
++
++    // Marco
++    oled.drawRect(0, y_min, 128, (y_max - y_min + 1), SSD1306_WHITE);
++
++    // Detección robusta: si el nombre contiene "RM" es un rectificador (unipolar)
++    bool es_rectificador = (strstr(fa.tipo, "RM") != NULL || strstr(fa.tipo, "RT") != NULL);
++    bool es_rtmo = (strcmp(fa.tipo, "RTMO") == 0);
++
++    int y_cero;
++    float ganancia;
++
++    if (es_rtmo) {
++        // RTMO = max(sin(theta), sin(theta - 120 deg), sin(theta - 240 deg)).
++        // Su rango teorico normalizado es 0.5 <= v/Vp <= 1.0.
++        y_cero = y_max - 1;
++        ganancia = (float)(alto_util - 2) / 0.5f;
++        for (int x = 2; x < 126; x += 4) oled.drawPixel(x, y_cero, SSD1306_WHITE);
++    } else if (es_rectificador) {
++        // Modo Rectificador: 0 V abajo de todo
++        y_cero = y_max - 2;
++        ganancia = (float)alto_util; // 0 V a 1.0 Vp ocupa los 48 px completos
++        // Línea punteada de 0 V en el piso
++        for (int x = 2; x < 126; x += 4) oled.drawPixel(x, y_cero, SSD1306_WHITE);
++    } else {
++        // Modo Bipolar (AC): 0 V al centro exacto
++        y_cero = y_min + (alto_util / 2) + 1;
++        ganancia = (float)(alto_util / 2);
++        // Eje central punteado
++        for (int x = 2; x < 126; x += 4) oled.drawPixel(x, y_cero, SSD1306_WHITE);
++    }
++
++    int x_ant = x_inicio;
++    int y_ant = y_cero;
++
++    for (int x = x_inicio; x <= x_fin; x++) {
++        float theta = (2.0f * PI * (float)(x - x_inicio)) / (float)(x_fin - x_inicio);
++        float valor = fa.a0;
++
++        for (int n = 1; n <= fa.armonicos_act; n++) {
++            valor += (fa.an[n] * cosf((float)n * theta)) + (fa.bn[n] * sinf((float)n * theta));
++        }
++
++        int y_act;
++        if (es_rtmo) {
++            // La escala respeta el rango teorico de RTMO, no el rango de la
++            // reconstruccion truncada, que puede tener pequenos sobrepicos.
++            y_act = y_cero - (int)((valor - 0.5f) * ganancia);
++        } else {
++            y_act = y_cero - (int)(valor * ganancia);
++        }
++        y_act = constrain(y_act, y_min + 1, y_max - 1);
++
++        if (x > x_inicio) {
++            oled.drawLine(x_ant, y_ant, x, y_act, SSD1306_WHITE);
++        }
++        x_ant = x;
++        y_ant = y_act;
++    }
++}
++
++void init_hardware() {
++    Wire.begin(PIN_SDA, PIN_SCL);
++    Wire.setClock(400000); // 400 kHz Fast I2C para máxima fluidez de pantalla
++    delay(100);
++
++    if (oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
++        oled_ok = true;
++        oled.clearDisplay();
++        oled.setTextColor(SSD1306_WHITE);
++        oled.setTextSize(1);
++        oled.setCursor(18, 10);
++        oled.print("SISTEMA LISTO");
++        oled.drawFastHLine(0, 24, 128, SSD1306_WHITE);
++        oled.setCursor(20, 36);
++        oled.print("ESPERANDO PC...");
++        oled.display();
++    }
++
++    pinMode(PIN_CLK, INPUT_PULLUP);
++    pinMode(PIN_DT, INPUT_PULLUP);
++
++    attachInterrupt(digitalPinToInterrupt(PIN_CLK), isr_encoder, FALLING);
++}
++
++void render_pantalla() {
++    if (!actualizar_pantalla || !oled_ok) return;
++    actualizar_pantalla = false;
++
++    if (!fa.datos_listos) return;
++
++    oled.clearDisplay();
++    oled.setTextColor(SSD1306_WHITE);
++
++    // 1. Encabezado superior completo
++    oled.setTextSize(1);
++    oled.setCursor(0, 1);
++    oled.printf("%s", fa.tipo);
++
++    oled.setCursor(76, 1);
++    if (cambio_pendiente) {
++        oled.printf("N>[%d]", fa.armonicos_sel);
++    } else {
++        oled.printf("N=%d", fa.armonicos_act);
++    }
++
++    // 2. Gráfico del osciloscopio
++    dibujar_osciloscopio();
++    oled.display();
++}
+\ No newline at end of file
+diff --git a/src/fourier.cpp b/src/fourier.cpp
+new file mode 100644
+index 0000000..a3a1821
+--- /dev/null
++++ b/src/fourier.cpp
+@@ -0,0 +1,121 @@
++// 2. Síntesis y cálculo de métricas eléctricas
++/* Segun los armonicos:
++V_avg: Es directamente la componente continua a_0 * V_max
++V_rms (Teorema de Parseval / Ley de Ortogonalidad): 
++    Suma cuadrática de los valores eficaces individuales de cada armónico sintetizado:
++        $$V_{rms}(N) = V_{max} * \sqrt{a_0^2 + \sum_{n=1}^{N} \frac{a_n^2 + b_n^2}{2}}$$
++    Segun sus formulas y funciones:
++Señal                            | Vavg Teórico                 | Vrms Teórico                                              | Vmax Teórico | Vmin Teórico
++---------------------------------+------------------------------+-----------------------------------------------------------+--------------+-------------
++Senoidal Pura                    | 0 V                          | Vp / sqrt(2) ≈ 0.7071 Vp                                  | +Vp          | -Vp
++Cuadrada Simétrica               | 0 V                          | Vp = 1.0000 Vp                                            | +Vp          | -Vp
++Cuasi Senoidal (120°)            | 0 V                          | Vp * sqrt(2/3) ≈ 0.8165 Vp                                | +Vp          | -Vp
++RMMO (Media Onda)                | (Vp / pi) ≈ 0.3183 Vp        | Vp / 2 = 0.5000 Vp                                        | +Vp          | 0 V
++RMOOC (Onda Completa, alpha=0)   | (2 * Vp / pi) ≈ 0.6366 Vp    | Vp / sqrt(2) ≈ 0.7071 Vp                                  | +Vp          | 0 V
++RMOCC (Onda Completa Controlado) | (Vp / pi) * (1 + cos(alpha)) | (Vp / sqrt(2)) * sqrt((pi - alpha + sin(2*alpha)/2) / pi) | +Vp          | 0 V
++*/
++// fourier.cpp — Análisis de Fourier discreto y cálculo de métricas eléctricas.
++// (Movido sin cambios de lógica desde funciones.cpp)
++#include "funciones.h"
++#include <math.h>
++
++FourierAnalyzer fa = {};
++
++// 1. Correlación Ortogonal de Fourier Discreta
++static void calcular_coeficientes(const float* vector, float& a0, float* an, float* bn) {
++    const int M = MAX_PUNTOS;
++    const float factor_dos_m = 2.0f / (float)M;
++    const float paso_rad = (2.0f * PI) / (float)M;
++
++    float suma_dc = 0.0f;
++    for (int k = 0; k < M; k++) {
++        suma_dc += vector[k];
++    }
++    a0 = suma_dc / (float)M;
++
++    for (int n = 1; n <= MAX_ARMONICOS; n++) {
++        float suma_cos = 0.0f;
++        float suma_sin = 0.0f;
++        float factor_n = (float)n * paso_rad;
++
++        for (int k = 0; k < M; k++) {
++            float angulo = factor_n * (float)k;
++            suma_cos += vector[k] * cosf(angulo);
++            suma_sin += vector[k] * sinf(angulo);
++        }
++
++        an[n] = factor_dos_m * suma_cos;
++        bn[n] = factor_dos_m * suma_sin;
++    }
++}
++
++void analizar_fourier() {
++    calcular_coeficientes(fa.vector_in, fa.a0, fa.an, fa.bn);
++    calcular_coeficientes(fa.corriente_in, fa.a0_i, fa.an_i, fa.bn_i);
++}
++
++// 2. Síntesis y cálculo de métricas
++void calcular_metricas_y_reportar(int n_arm) {
++    const int M = MAX_PUNTOS;
++    float v_max = -9999.0f;
++    float v_min = 9999.0f;
++    float i_max = -9999.0f;
++    float i_min = 9999.0f;
++    float suma_potencia_activa = 0.0f;
++    float suma_potencia_reactiva = 0.0f;
++
++    for (int k = 0; k < M; k++) {
++        float theta = (2.0f * PI * (float)k) / (float)M;
++        float val_norm = fa.a0;
++        float val_corriente = fa.a0_i;
++
++        for (int n = 1; n <= n_arm; n++) {
++            val_norm += (fa.an[n] * cosf((float)n * theta)) + (fa.bn[n] * sinf((float)n * theta));
++            val_corriente += (fa.an_i[n] * cosf((float)n * theta)) + (fa.bn_i[n] * sinf((float)n * theta));
++        }
++
++        float v_inst = val_norm * fa.vmax;
++        float i_inst = val_corriente;
++        if (v_inst > v_max) v_max = v_inst;
++        if (v_inst < v_min) v_min = v_inst;
++        if (i_inst > i_max) i_max = i_inst;
++        if (i_inst < i_min) i_min = i_inst;
++        suma_potencia_activa += v_inst * i_inst;
++    }
++
++    fa.v_avg_calc = fa.a0 * fa.vmax;
++
++    float suma_potencia_ac = 0.0f;
++    for (int n = 1; n <= n_arm; n++) {
++        suma_potencia_ac += (fa.an[n] * fa.an[n] + fa.bn[n] * fa.bn[n]) / 2.0f;
++    }
++    fa.v_rms_calc = fa.vmax * sqrtf((fa.a0 * fa.a0) + suma_potencia_ac);
++    fa.v_max_calc = v_max;
++    fa.v_min_calc = v_min;
++    fa.i_max_calc = i_max;
++    fa.i_min_calc = i_min;
++
++    float suma_corriente_ac = 0.0f;
++    for (int n = 1; n <= n_arm; n++) {
++        suma_corriente_ac += (fa.an_i[n] * fa.an_i[n] + fa.bn_i[n] * fa.bn_i[n]) / 2.0f;
++        suma_potencia_reactiva +=
++            ((fa.vmax * fa.bn[n]) * fa.an_i[n] - (fa.vmax * fa.an[n]) * fa.bn_i[n]) / 2.0f;
++    }
++
++    fa.i_avg_calc = fa.a0_i;
++    fa.i_rms_calc = sqrtf((fa.a0_i * fa.a0_i) + suma_corriente_ac);
++    fa.potencia_s = fa.v_rms_calc * fa.i_rms_calc;
++    fa.potencia_p = suma_potencia_activa / (float)M;
++    fa.potencia_q = suma_potencia_reactiva;
++    float potencia_d_cuadrado = (fa.potencia_s * fa.potencia_s) -
++                                (fa.potencia_p * fa.potencia_p) -
++                                (fa.potencia_q * fa.potencia_q);
++    fa.potencia_d = sqrtf(max(0.0f, potencia_d_cuadrado));
++    fa.factor_potencia = (fa.potencia_s > 0.0f) ? fa.potencia_p / fa.potencia_s : 0.0f;
++
++    Serial.printf("DATA_METRICAS,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
++                  n_arm, fa.v_max_calc, fa.v_min_calc, fa.v_avg_calc, fa.v_rms_calc,
++                  fa.i_max_calc, fa.i_min_calc, fa.i_avg_calc, fa.i_rms_calc,
++                  fa.potencia_s, fa.potencia_p, fa.potencia_q, fa.potencia_d,
++                  fa.factor_potencia);
++}
+diff --git a/src/funciones.cpp b/src/funciones.cpp
+deleted file mode 100644
+index 77c99bd..0000000
+--- a/src/funciones.cpp
++++ /dev/null
+@@ -1,385 +0,0 @@
+-// 2. Síntesis y cálculo de métricas eléctricas
+-/* Segun los armonicos:
+-V_avg: Es directamente la componente continua a_0 * V_max
+-V_rms (Teorema de Parseval / Ley de Ortogonalidad): 
+-    Suma cuadrática de los valores eficaces individuales de cada armónico sintetizado:
+-        $$V_{rms}(N) = V_{max} * \sqrt{a_0^2 + \sum_{n=1}^{N} \frac{a_n^2 + b_n^2}{2}}$$
+-    Segun sus formulas y funciones:
+-Señal                            | Vavg Teórico                 | Vrms Teórico                                              | Vmax Teórico | Vmin Teórico
+----------------------------------+------------------------------+-----------------------------------------------------------+--------------+-------------
+-Senoidal Pura                    | 0 V                          | Vp / sqrt(2) ≈ 0.7071 Vp                                  | +Vp          | -Vp
+-Cuadrada Simétrica               | 0 V                          | Vp = 1.0000 Vp                                            | +Vp          | -Vp
+-Cuasi Senoidal (120°)            | 0 V                          | Vp * sqrt(2/3) ≈ 0.8165 Vp                                | +Vp          | -Vp
+-RMMO (Media Onda)                | (Vp / pi) ≈ 0.3183 Vp        | Vp / 2 = 0.5000 Vp                                        | +Vp          | 0 V
+-RMOOC (Onda Completa, alpha=0)   | (2 * Vp / pi) ≈ 0.6366 Vp    | Vp / sqrt(2) ≈ 0.7071 Vp                                  | +Vp          | 0 V
+-RMOCC (Onda Completa Controlado) | (Vp / pi) * (1 + cos(alpha)) | (Vp / sqrt(2)) * sqrt((pi - alpha + sin(2*alpha)/2) / pi) | +Vp          | 0 V
+-*/
+-#include "funciones.h"
+-#include <Wire.h>
+-#include <Adafruit_GFX.h>
+-#include <Adafruit_SSD1306.h>
+-#include <WiFi.h>
+-#include <ESPmDNS.h>
+-#include <ArduinoOTA.h>
+-#include <math.h>
+-#include <string.h>
+-
+-#define PIN_DT       5
+-#define PIN_CLK      18
+-#define PIN_SDA      21
+-#define PIN_SCL      22
+-#define OLED_ADDR    0x3C
+-
+-static Adafruit_SSD1306 oled(128, 64, &Wire, -1);
+-static bool oled_ok = false;
+-static volatile bool actualizar_pantalla = true;
+-static volatile bool cambio_pendiente = false;
+-static volatile unsigned long t_ultimo_giro = 0;
+-
+-static FourierAnalyzer fa = {};
+-static char rx_buffer[24000];
+-
+-static const char* WIFI_SSID = "EDP-TESTING";
+-static const char* WIFI_PASSWORD = "Potencia26";
+-static const char* OTA_HOSTNAME = "esp32-potencia";
+-static const char* OTA_PASSWORD = "edptest";
+-
+-// 1. Correlación Ortogonal de Fourier Discreta
+-static void calcular_coeficientes(const float* vector, float& a0, float* an, float* bn) {
+-    const int M = MAX_PUNTOS;
+-    const float factor_dos_m = 2.0f / (float)M;
+-    const float paso_rad = (2.0f * PI) / (float)M;
+-
+-    float suma_dc = 0.0f;
+-    for (int k = 0; k < M; k++) {
+-        suma_dc += vector[k];
+-    }
+-    a0 = suma_dc / (float)M;
+-
+-    for (int n = 1; n <= MAX_ARMONICOS; n++) {
+-        float suma_cos = 0.0f;
+-        float suma_sin = 0.0f;
+-        float factor_n = (float)n * paso_rad;
+-
+-        for (int k = 0; k < M; k++) {
+-            float angulo = factor_n * (float)k;
+-            suma_cos += vector[k] * cosf(angulo);
+-            suma_sin += vector[k] * sinf(angulo);
+-        }
+-
+-        an[n] = factor_dos_m * suma_cos;
+-        bn[n] = factor_dos_m * suma_sin;
+-    }
+-}
+-
+-static void analizar_fourier() {
+-    calcular_coeficientes(fa.vector_in, fa.a0, fa.an, fa.bn);
+-    calcular_coeficientes(fa.corriente_in, fa.a0_i, fa.an_i, fa.bn_i);
+-}
+-
+-// 2. Síntesis y cálculo de métricas
+-static void calcular_metricas_y_reportar(int n_arm) {
+-    const int M = MAX_PUNTOS;
+-    float v_max = -9999.0f;
+-    float v_min = 9999.0f;
+-    float i_max = -9999.0f;
+-    float i_min = 9999.0f;
+-    float suma_potencia_activa = 0.0f;
+-    float suma_potencia_reactiva = 0.0f;
+-
+-    for (int k = 0; k < M; k++) {
+-        float theta = (2.0f * PI * (float)k) / (float)M;
+-        float val_norm = fa.a0;
+-        float val_corriente = fa.a0_i;
+-
+-        for (int n = 1; n <= n_arm; n++) {
+-            val_norm += (fa.an[n] * cosf((float)n * theta)) + (fa.bn[n] * sinf((float)n * theta));
+-            val_corriente += (fa.an_i[n] * cosf((float)n * theta)) + (fa.bn_i[n] * sinf((float)n * theta));
+-        }
+-
+-        float v_inst = val_norm * fa.vmax;
+-        float i_inst = val_corriente;
+-        if (v_inst > v_max) v_max = v_inst;
+-        if (v_inst < v_min) v_min = v_inst;
+-        if (i_inst > i_max) i_max = i_inst;
+-        if (i_inst < i_min) i_min = i_inst;
+-        suma_potencia_activa += v_inst * i_inst;
+-    }
+-
+-    fa.v_avg_calc = fa.a0 * fa.vmax;
+-
+-    float suma_potencia_ac = 0.0f;
+-    for (int n = 1; n <= n_arm; n++) {
+-        suma_potencia_ac += (fa.an[n] * fa.an[n] + fa.bn[n] * fa.bn[n]) / 2.0f;
+-    }
+-    fa.v_rms_calc = fa.vmax * sqrtf((fa.a0 * fa.a0) + suma_potencia_ac);
+-    fa.v_max_calc = v_max;
+-    fa.v_min_calc = v_min;
+-    fa.i_max_calc = i_max;
+-    fa.i_min_calc = i_min;
+-
+-    float suma_corriente_ac = 0.0f;
+-    for (int n = 1; n <= n_arm; n++) {
+-        suma_corriente_ac += (fa.an_i[n] * fa.an_i[n] + fa.bn_i[n] * fa.bn_i[n]) / 2.0f;
+-        suma_potencia_reactiva +=
+-            ((fa.vmax * fa.bn[n]) * fa.an_i[n] - (fa.vmax * fa.an[n]) * fa.bn_i[n]) / 2.0f;
+-    }
+-
+-    fa.i_avg_calc = fa.a0_i;
+-    fa.i_rms_calc = sqrtf((fa.a0_i * fa.a0_i) + suma_corriente_ac);
+-    fa.potencia_s = fa.v_rms_calc * fa.i_rms_calc;
+-    fa.potencia_p = suma_potencia_activa / (float)M;
+-    fa.potencia_q = suma_potencia_reactiva;
+-    float potencia_d_cuadrado = (fa.potencia_s * fa.potencia_s) -
+-                                (fa.potencia_p * fa.potencia_p) -
+-                                (fa.potencia_q * fa.potencia_q);
+-    fa.potencia_d = sqrtf(max(0.0f, potencia_d_cuadrado));
+-    fa.factor_potencia = (fa.potencia_s > 0.0f) ? fa.potencia_p / fa.potencia_s : 0.0f;
+-
+-    Serial.printf("DATA_METRICAS,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+-                  n_arm, fa.v_max_calc, fa.v_min_calc, fa.v_avg_calc, fa.v_rms_calc,
+-                  fa.i_max_calc, fa.i_min_calc, fa.i_avg_calc, fa.i_rms_calc,
+-                  fa.potencia_s, fa.potencia_p, fa.potencia_q, fa.potencia_d,
+-                  fa.factor_potencia);
+-}
+-
+-// 3. Encoder ISR
+-IRAM_ATTR static void isr_encoder() {
+-    static unsigned long t_ant = 0;
+-    unsigned long t_act = millis();
+-    unsigned long dt = t_act - t_ant;
+-
+-    if (dt > 10) {
+-        int delta = (dt < 40) ? 5 : 1;
+-
+-        if (digitalRead(PIN_DT) == HIGH) {
+-            fa.armonicos_sel = min(MAX_ARMONICOS, fa.armonicos_sel + delta);
+-        } else {
+-            fa.armonicos_sel = max(1, fa.armonicos_sel - delta);
+-        }
+-
+-        cambio_pendiente = (fa.armonicos_sel != fa.armonicos_act);
+-        t_ultimo_giro = t_act;
+-        actualizar_pantalla = true;
+-        t_ant = t_act;
+-    }
+-}
+-
+-void verificar_auto_reconstruccion() {
+-    if (cambio_pendiente && (millis() - t_ultimo_giro > TIMEOUT_AUTO_MS)) {
+-        fa.armonicos_act = fa.armonicos_sel;
+-        cambio_pendiente = false;
+-        actualizar_pantalla = true;
+-        calcular_metricas_y_reportar(fa.armonicos_act);
+-    }
+-}
+-
+-// 4. Recepción UART sin bloqueo de buffer
+-void recibir_datos_serial() {
+-    if (Serial.available() > 0) {
+-        size_t bytes_leidos = Serial.readBytesUntil('\n', rx_buffer, sizeof(rx_buffer) - 1);
+-        rx_buffer[bytes_leidos] = '\0';
+-
+-        if (bytes_leidos > 10) {
+-            char* token = strtok(rx_buffer, ",");
+-            if (token != NULL) strncpy(fa.tipo, token, sizeof(fa.tipo) - 1);
+-
+-            token = strtok(NULL, ",");
+-            if (token != NULL) fa.vmax = atof(token);
+-
+-            token = strtok(NULL, ",");
+-            if (token != NULL) strncpy(fa.freq, token, sizeof(fa.freq) - 1);
+-
+-            token = strtok(NULL, ",");
+-            if (token != NULL) {
+-                fa.armonicos_act = constrain(atoi(token), 1, MAX_ARMONICOS);
+-                fa.armonicos_sel = fa.armonicos_act;
+-            }
+-
+-            int idx = 0;
+-            token = strtok(NULL, ",");
+-            while (token != NULL && idx < (2 * MAX_PUNTOS)) {
+-                if (idx < MAX_PUNTOS) {
+-                    fa.vector_in[idx] = atof(token);
+-                } else {
+-                    fa.corriente_in[idx - MAX_PUNTOS] = atof(token);
+-                }
+-                idx++;
+-                token = strtok(NULL, ",");
+-            }
+-
+-            if (idx == (2 * MAX_PUNTOS)) {
+-                fa.datos_listos = true;
+-                
+-                // Conserva N armónicos actuales
+-                int n_mantener = (fa.armonicos_act >= 1) ? fa.armonicos_act : 1;
+-                fa.armonicos_sel = n_mantener;
+-                fa.armonicos_act = n_mantener;
+-                
+-                analizar_fourier();
+-                calcular_metricas_y_reportar(n_mantener);
+-                
+-                cambio_pendiente = false;
+-                actualizar_pantalla = true;
+-            }
+-        }
+-    }
+-}
+-
+-// 5. Osciloscopio con Auto-Escalado Dinámico y Alta Velocidad
+-static void dibujar_osciloscopio() {
+-    const int x_inicio = 1;
+-    const int x_fin = 126;
+-    const int y_min = 13;
+-    const int y_max = 63;
+-    const int alto_util = y_max - y_min - 2; // ~48 px útiles
+-
+-    // Marco
+-    oled.drawRect(0, y_min, 128, (y_max - y_min + 1), SSD1306_WHITE);
+-
+-    // Detección robusta: si el nombre contiene "RM" es un rectificador (unipolar)
+-    bool es_rectificador = (strstr(fa.tipo, "RM") != NULL || strstr(fa.tipo, "RT") != NULL);
+-    bool es_rtmo = (strcmp(fa.tipo, "RTMO") == 0);
+-
+-    int y_cero;
+-    float ganancia;
+-
+-    if (es_rtmo) {
+-        // RTMO = max(sin(theta), sin(theta - 120 deg), sin(theta - 240 deg)).
+-        // Su rango teorico normalizado es 0.5 <= v/Vp <= 1.0.
+-        y_cero = y_max - 1;
+-        ganancia = (float)(alto_util - 2) / 0.5f;
+-        for (int x = 2; x < 126; x += 4) oled.drawPixel(x, y_cero, SSD1306_WHITE);
+-    } else if (es_rectificador) {
+-        // Modo Rectificador: 0 V abajo de todo
+-        y_cero = y_max - 2;
+-        ganancia = (float)alto_util; // 0 V a 1.0 Vp ocupa los 48 px completos
+-        // Línea punteada de 0 V en el piso
+-        for (int x = 2; x < 126; x += 4) oled.drawPixel(x, y_cero, SSD1306_WHITE);
+-    } else {
+-        // Modo Bipolar (AC): 0 V al centro exacto
+-        y_cero = y_min + (alto_util / 2) + 1;
+-        ganancia = (float)(alto_util / 2);
+-        // Eje central punteado
+-        for (int x = 2; x < 126; x += 4) oled.drawPixel(x, y_cero, SSD1306_WHITE);
+-    }
+-
+-    int x_ant = x_inicio;
+-    int y_ant = y_cero;
+-
+-    for (int x = x_inicio; x <= x_fin; x++) {
+-        float theta = (2.0f * PI * (float)(x - x_inicio)) / (float)(x_fin - x_inicio);
+-        float valor = fa.a0;
+-
+-        for (int n = 1; n <= fa.armonicos_act; n++) {
+-            valor += (fa.an[n] * cosf((float)n * theta)) + (fa.bn[n] * sinf((float)n * theta));
+-        }
+-
+-        int y_act;
+-        if (es_rtmo) {
+-            // La escala respeta el rango teorico de RTMO, no el rango de la
+-            // reconstruccion truncada, que puede tener pequenos sobrepicos.
+-            y_act = y_cero - (int)((valor - 0.5f) * ganancia);
+-        } else {
+-            y_act = y_cero - (int)(valor * ganancia);
+-        }
+-        y_act = constrain(y_act, y_min + 1, y_max - 1);
+-
+-        if (x > x_inicio) {
+-            oled.drawLine(x_ant, y_ant, x, y_act, SSD1306_WHITE);
+-        }
+-        x_ant = x;
+-        y_ant = y_act;
+-    }
+-}
+-
+-void init_wifi_ota() {
+-    WiFi.mode(WIFI_STA);
+-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+-
+-    const unsigned long inicio = millis();
+-    while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000UL) {
+-        delay(250);
+-    }
+-
+-    if (WiFi.status() != WL_CONNECTED) {
+-        Serial.println("WIFI_ERROR");
+-        return;
+-    }
+-
+-    if (!MDNS.begin(OTA_HOSTNAME)) {
+-        Serial.println("MDNS_ERROR");
+-    }
+-
+-    ArduinoOTA.setHostname(OTA_HOSTNAME);
+-    ArduinoOTA.setPassword(OTA_PASSWORD);
+-    ArduinoOTA.onStart([]() {
+-        Serial.println("OTA_START");
+-    });
+-    ArduinoOTA.onEnd([]() {
+-        Serial.println("OTA_END");
+-    });
+-    ArduinoOTA.onError([](ota_error_t error) {
+-        Serial.printf("OTA_ERROR,%u\n", static_cast<unsigned>(error));
+-    });
+-    ArduinoOTA.begin();
+-
+-    Serial.print("WIFI_READY,");
+-    Serial.println(WiFi.localIP());
+-}
+-
+-void atender_wifi_ota() {
+-    if (WiFi.status() == WL_CONNECTED) {
+-        ArduinoOTA.handle();
+-    }
+-}
+-
+-void init_hardware() {
+-    Wire.begin(PIN_SDA, PIN_SCL);
+-    Wire.setClock(400000); // 400 kHz Fast I2C para máxima fluidez de pantalla
+-    delay(100);
+-
+-    if (oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+-        oled_ok = true;
+-        oled.clearDisplay();
+-        oled.setTextColor(SSD1306_WHITE);
+-        oled.setTextSize(1);
+-        oled.setCursor(18, 10);
+-        oled.print("SISTEMA LISTO");
+-        oled.drawFastHLine(0, 24, 128, SSD1306_WHITE);
+-        oled.setCursor(20, 36);
+-        oled.print("ESPERANDO PC...");
+-        oled.display();
+-    }
+-
+-    pinMode(PIN_CLK, INPUT_PULLUP);
+-    pinMode(PIN_DT, INPUT_PULLUP);
+-
+-    attachInterrupt(digitalPinToInterrupt(PIN_CLK), isr_encoder, FALLING);
+-}
+-
+-void render_pantalla() {
+-    if (!actualizar_pantalla || !oled_ok) return;
+-    actualizar_pantalla = false;
+-
+-    if (!fa.datos_listos) return;
+-
+-    oled.clearDisplay();
+-    oled.setTextColor(SSD1306_WHITE);
+-
+-    // 1. Encabezado superior completo
+-    oled.setTextSize(1);
+-    oled.setCursor(0, 1);
+-    oled.printf("%s", fa.tipo);
+-
+-    oled.setCursor(76, 1);
+-    if (cambio_pendiente) {
+-        oled.printf("N>[%d]", fa.armonicos_sel);
+-    } else {
+-        oled.printf("N=%d", fa.armonicos_act);
+-    }
+-
+-    // 2. Gráfico del osciloscopio
+-    dibujar_osciloscopio();
+-    oled.display();
+-}
+\ No newline at end of file
+diff --git a/src/ota.cpp b/src/ota.cpp
+index e69de29..12a3953 100644
+--- a/src/ota.cpp
++++ b/src/ota.cpp
+@@ -0,0 +1,53 @@
++// ota.cpp — Conexión WiFi y actualización OTA (ArduinoOTA).
++// (Movido sin cambios de lógica desde funciones.cpp)
++// TODO Paso 4: pasar credenciales a secrets.h y mover handle() a tarea en core 0.
++#include "funciones.h"
++#include <WiFi.h>
++#include <ESPmDNS.h>
++#include <ArduinoOTA.h>
++
++static const char* WIFI_SSID = "EDP-TESTING";
++static const char* WIFI_PASSWORD = "Potencia26";
++static const char* OTA_HOSTNAME = "esp32-potencia";
++static const char* OTA_PASSWORD = "edptest";
++
++void init_wifi_ota() {
++    WiFi.mode(WIFI_STA);
++    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
++
++    const unsigned long inicio = millis();
++    while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000UL) {
++        delay(250);
++    }
++
++    if (WiFi.status() != WL_CONNECTED) {
++        Serial.println("WIFI_ERROR");
++        return;
++    }
++
++    if (!MDNS.begin(OTA_HOSTNAME)) {
++        Serial.println("MDNS_ERROR");
++    }
++
++    ArduinoOTA.setHostname(OTA_HOSTNAME);
++    ArduinoOTA.setPassword(OTA_PASSWORD);
++    ArduinoOTA.onStart([]() {
++        Serial.println("OTA_START");
++    });
++    ArduinoOTA.onEnd([]() {
++        Serial.println("OTA_END");
++    });
++    ArduinoOTA.onError([](ota_error_t error) {
++        Serial.printf("OTA_ERROR,%u\n", static_cast<unsigned>(error));
++    });
++    ArduinoOTA.begin();
++
++    Serial.print("WIFI_READY,");
++    Serial.println(WiFi.localIP());
++}
++
++void atender_wifi_ota() {
++    if (WiFi.status() == WL_CONNECTED) {
++        ArduinoOTA.handle();
++    }
++}
+diff --git a/src/reference/SCR_OTA_14.ino b/src/reference/SCR_OTA_14.ino
+deleted file mode 100644
+index 288fb6c..0000000
+--- a/src/reference/SCR_OTA_14.ino
++++ /dev/null
+@@ -1,128 +0,0 @@
+-#include <WiFi.h>
+-#include <ESPmDNS.h>
+-#include <WiFiUdp.h>
+-#include <ArduinoOTA.h>
+-
+-const char* ssid = "EDP-TESTING";
+-const char* password = "Potencia26";
+-
+-const int pinZCD = 4;
+-const int pinDisparo = 16;
+-const int pinPot = 36; // Pin analógico para el potenciómetro (ADC1)
+-
+-volatile unsigned long tiempoUltimoCruce = 0;
+-volatile unsigned long periodoCicloCompleto = 20000; 
+-volatile bool cruceDetectado = false;
+-
+-int anguloDisparo = 90; 
+-const unsigned long anchoPulso_us = 50;
+-int adelanto = 100; // compensar retraso en el disparo en us
+-
+-// Manejador para la tarea de FreeRTOS
+-TaskHandle_t ManejadorOTA;
+-
+-void IRAM_ATTR isrCrucePorCero() {
+-  unsigned long tiempoActual = micros();
+-  unsigned long tiempoMedido = tiempoActual - tiempoUltimoCruce;
+-  
+-  if (tiempoMedido > 12000) { 
+-    periodoCicloCompleto = tiempoMedido;
+-    tiempoUltimoCruce = tiempoActual;
+-    cruceDetectado = true;
+-  }
+-}
+-
+-// --- TAREA ASIGNADA AL NÚCLEO 0 ---
+-// Esta función correrá en paralelo, independiente del loop()
+-void tareaManejoOTA(void * parameter) {
+-  for(;;) {
+-    ArduinoOTA.handle();
+-    
+-    // IMPORTANTE: En FreeRTOS, los bucles infinitos deben ceder tiempo de 
+-    // procesamiento para no disparar el Watchdog Timer (reinicio por pánico).
+-    // Un retardo de 10 milisegundos es perfecto para que el WiFi respire.
+-    vTaskDelay(20 / portTICK_PERIOD_MS); 
+-  }
+-}
+-
+-
+-void setup() {
+-  Serial.begin(115200);
+-  
+-  pinMode(pinDisparo, OUTPUT);
+-  digitalWrite(pinDisparo, LOW);
+-  pinMode(pinZCD, INPUT); 
+-
+-  // La resolución por defecto del ESP32 es de 12 bits (0-4095)
+-  analogReadResolution(12);
+-    
+-  attachInterrupt(digitalPinToInterrupt(pinZCD), isrCrucePorCero, FALLING);
+-  Serial.println("RMMOC Dual-Core Iniciado. Conectando...");
+-
+-  WiFi.mode(WIFI_STA);
+-  WiFi.begin(ssid, password);
+-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+-    Serial.println("Error WiFi! Reiniciando...");
+-    delay(5000);
+-    ESP.restart();
+-  }
+-
+-  ArduinoOTA.setHostname("esp32-rmmoc"); 
+-  ArduinoOTA.setPassword("edptest"); 
+-
+-  //ArduinoOTA.onStart([]() { digitalWrite(pinDisparo, LOW); });
+-  ArduinoOTA.onStart([]() { 
+-    // 1. Desvinculamos el pin ZCD para que no interrumpa el flasheo
+-    detachInterrupt(digitalPinToInterrupt(pinZCD)); 
+-
+-    // 2. Apagamos por seguridad la etapa de potencia
+-    digitalWrite(pinDisparo, LOW); 
+-
+-    Serial.println("Iniciando OTA, interrupciones suspendidas..."); 
+-  });
+-  ArduinoOTA.begin();
+-  
+-  Serial.print("IP: ");
+-  Serial.println(WiFi.localIP());
+-
+-  // --- CREACIÓN DE LA TAREA EN EL NÚCLEO 0 ---
+-  xTaskCreatePinnedToCore(
+-    tareaManejoOTA,   // Función que contiene el código de la tarea
+-    "Tarea_OTA",      // Nombre descriptivo
+-    10000,            // Tamaño de la pila (Stack size)
+-    NULL,             // Parámetros pasados a la función
+-    1,                // Prioridad de la tarea (1 es baja/normal)
+-    &ManejadorOTA,    // Manejador de la tarea
+-    0                 // NÚCLEO AL QUE SE ASIGNA (0 = PRO_CPU)
+-  );
+-}
+-
+-void loop() {
+-  // --- NÚCLEO 1: EXCLUSIVO PARA ELECTRÓNICA DE POTENCIA ---
+-  // Ahora el loop() puede iterar a máxima velocidad sin interrupciones de red.
+-  // 1. Lectura del potenciómetro fuera de la zona crítica de tiempo
+-  // Solo actualizamos el ángulo si NO estamos en medio de la espera del disparo.
+-  if (!cruceDetectado) {
+-    int lecturaADC = analogRead(pinPot);
+-    
+-    // Mapeamos el valor del ADC (0-4095) a grados (0-180).
+-    // Nota de diseño: Se limita el rango entre 5° y 175° para evitar 
+-    // solapamientos con el propio ancho del pulso de cruce por cero
+-    // y asegurar que el SCR siempre tenga margen para conmutar.
+-    anguloDisparo = map(lecturaADC, 0, 4095, 5, 175);
+-  }
+-  // 2. Ejecución del disparo  
+-  if (cruceDetectado) {
+-    unsigned long retardoDisparo_us = ((periodoCicloCompleto * anguloDisparo) / 360)-adelanto;
+-    unsigned long tiempoActual = micros();
+-    
+-    if (tiempoActual - tiempoUltimoCruce >= retardoDisparo_us) {
+-      
+-      digitalWrite(pinDisparo, HIGH);
+-      delayMicroseconds(anchoPulso_us);
+-      digitalWrite(pinDisparo, LOW);
+-      
+-      cruceDetectado = false; 
+-    }
+-  }
+-}
+-- 
+2.43.0
+
